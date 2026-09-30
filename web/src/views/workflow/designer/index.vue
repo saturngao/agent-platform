@@ -538,6 +538,17 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 隐藏 Vue Flow 默认的 3 个无提示按钮，只保留自定义的放大/缩小/适应画布（带 title 提示） */
+:deep(.vue-flow__controls-zoomin),
+:deep(.vue-flow__controls-zoomout),
+:deep(.vue-flow__controls-fitview) {
+  display: none;
+}
+/* 自定义按钮内的 Element 图标颜色与默认样式一致 */
+:deep(.vue-flow__controls-button .el-icon) {
+  display: block;
+  color: inherit;
+}
 .designer {
   display: flex;
   height: calc(100vh - 330px);
