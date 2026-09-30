@@ -93,4 +93,12 @@ public class SysRoleController {
     public R<List<Long>> menuTree(@PathVariable("roleId") Long roleId) {
         return R.ok(roleService.selectMenuIdsByRoleId(roleId));
     }
+
+    /**
+     * 查询角色已选中的部门ID数组（数据范围为"自定数据"时回显）
+     */
+    @GetMapping("/deptTree/{roleId}")
+    public R<List<Long>> deptTree(@PathVariable("roleId") Long roleId) {
+        return R.ok(roleService.selectDeptIdsByRoleId(roleId));
+    }
 }

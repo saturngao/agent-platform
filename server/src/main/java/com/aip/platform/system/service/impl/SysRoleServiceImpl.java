@@ -8,6 +8,7 @@ import com.aip.platform.common.PageResult;
 import com.aip.platform.common.SecurityUtils;
 import com.aip.platform.system.entity.Menu;
 import com.aip.platform.system.entity.Role;
+import com.aip.platform.system.mapper.DeptMapper;
 import com.aip.platform.system.mapper.MenuMapper;
 import com.aip.platform.system.mapper.RoleMapper;
 import com.aip.platform.system.mapper.UserMapper;
@@ -34,11 +35,14 @@ public class SysRoleServiceImpl extends ServiceImpl<RoleMapper, Role> implements
 
     private final UserMapper userMapper;
 
+    private final DeptMapper deptMapper;
+
     private final ISysMenuService menuService;
 
-    public SysRoleServiceImpl(MenuMapper menuMapper, UserMapper userMapper, ISysMenuService menuService) {
+    public SysRoleServiceImpl(MenuMapper menuMapper, UserMapper userMapper, DeptMapper deptMapper, ISysMenuService menuService) {
         this.menuMapper = menuMapper;
         this.userMapper = userMapper;
+        this.deptMapper = deptMapper;
         this.menuService = menuService;
     }
 
@@ -106,6 +110,14 @@ public class SysRoleServiceImpl extends ServiceImpl<RoleMapper, Role> implements
             return List.of();
         }
         return baseMapper.selectMenuIdsByRoleId(roleId);
+    }
+
+    @Override
+    public List<Long> selectDeptIdsByRoleId(Long roleId) {
+        if (roleId == null) {
+            return List.of();
+        }
+        return deptMapper.selectDeptIdsByRoleId(roleId);
     }
 
     @Override

@@ -148,7 +148,6 @@
         node-key="id"
         show-checkbox
         default-expand-all
-        :default-checked-keys="checkedMenuKeys"
       />
       <template #footer>
         <div class="dialog-footer">
@@ -208,6 +207,7 @@ import {
   changeRoleStatus,
   updateRoleDataScope,
   roleMenuTree,
+  roleDeptTree,
   menuTree,
   deptTree
 } from '@/api/system'
@@ -265,7 +265,6 @@ const dataScopeLabel = (value) => dataScopeOptions.find((i) => i.value === Strin
 
 /* ------------------------------ 菜单权限弹窗 ------------------------------ */
 const menuAuthOpen = ref(false)
-const checkedMenuKeys = ref([])
 const currentRoleId = ref(null)
 
 /* ------------------------------ 数据权限弹窗 ------------------------------ */
@@ -300,6 +299,41 @@ const menuIdsFromTree = (treeRef) => [
   ...(treeRef?.getCheckedKeys() || []),
   ...(treeRef?.getHalfCheckedKeys() || [])
 ]
+
+/**
+ * 回显前过滤出"叶子节点"ID。
+ * 数据库里存的是全量 ID（含半选父节点，保存时 getHalfCheckedKeys 一并存了），
+ * 而 el-tree 默认父子联动：setCheckedKeys 传父节点 ID 会把它所有子节点全部勾上，
+ * 导致回显权限被放大。只 set 叶子节点，父节点会根据子节点自动呈现半选/全选。
+ * @param {Array} checkedIds 后端返回的已授权 ID 数组
+ * @param {Array} nodes 树数据（菜单树或部门树）
+ * @param {Function} idOf 取节点 ID 的函数
+ */
+function leafCheckedKeys(checkedIds = [], nodes = menuOptions.value, idOf = (n) => n.id) {
+  const idSet = new Set((checkedIds || []).map(Number))
+  const leafs = []
+  const walk = (list = []) => {
+    list.forEach((n) => {
+      if (n.children?.length) {
+        walk(n.children)
+      } else if (idSet.has(Number(idOf(n)))) {
+        leafs.push(idOf(n))
+      }
+    })
+  }
+  walk(nodes)
+  return leafs
+}
+
+/** 取角色已授权菜单 ID（后端返回 Long[] 数组） */
+async function fetchCheckedMenuIds(roleId, fallback = []) {
+  try {
+    const res = await roleMenuTree(roleId)
+    return Array.isArray(res) ? res : (res?.checkedKeys || fallback)
+  } catch (e) {
+    return fallback
+  }
+}
 
 async function getList() {
   loading.value = true
@@ -359,15 +393,10 @@ async function handleUpdate(row) {
   title.value = '修改角色'
   form.value = { ...defaultForm(), ...row, menuIds: row.menuIds || [] }
   open.value = true
+  // 先查已授权菜单 ID（后端返回数组），等树渲染完再回显叶子节点
+  const checkedIds = await fetchCheckedMenuIds(row.roleId, row.menuIds || [])
   await nextTick()
-  // 用后端返回的该角色已授权菜单（含半选父节点）
-  try {
-    const res = await roleMenuTree(row.roleId)
-    if (res?.menus?.length) menuOptions.value = normalizeMenu(res.menus)
-    menuTreeRef.value?.setCheckedKeys(res?.checkedKeys || row.menuIds || [])
-  } catch (e) {
-    menuTreeRef.value?.setCheckedKeys(row.menuIds || [])
-  }
+  menuTreeRef.value?.setCheckedKeys(leafCheckedKeys(checkedIds))
 }
 
 function submitForm() {
@@ -442,13 +471,9 @@ async function handleStatusChange(row, val) {
 async function openMenuAuth(row) {
   currentRoleId.value = row.roleId
   menuAuthOpen.value = true
-  try {
-    const res = await roleMenuTree(row.roleId)
-    if (res?.menus?.length) menuOptions.value = normalizeMenu(res.menus)
-    checkedMenuKeys.value = res?.checkedKeys || []
-  } catch (e) {
-    checkedMenuKeys.value = row.menuIds || []
-  }
+  const checkedIds = await fetchCheckedMenuIds(row.roleId, row.menuIds || [])
+  await nextTick()
+  authTreeRef.value?.setCheckedKeys(leafCheckedKeys(checkedIds))
 }
 
 async function submitMenuAuth() {
@@ -472,14 +497,16 @@ async function openDataScope(row) {
   dataScopeForm.roleKey = row.roleKey
   dataScopeForm.dataScope = String(row.dataScope || '1')
   dataScopeOpen.value = true
-  await nextTick()
+  // 查角色已授权部门 ID（后端返回 Long[] 数组），等树渲染完再回显叶子节点
+  let checkedDeptIds = []
   try {
-    const res = await roleMenuTree(row.roleId)
-    checkedDeptKeys.value = res?.checkedDeptKeys || []
+    const res = await roleDeptTree(row.roleId)
+    checkedDeptIds = Array.isArray(res) ? res : (res?.checkedDeptKeys || [])
   } catch (e) {
-    checkedDeptKeys.value = []
+    checkedDeptIds = []
   }
-  deptTreeRef.value?.setCheckedKeys(checkedDeptKeys.value)
+  await nextTick()
+  deptTreeRef.value?.setCheckedKeys(leafCheckedKeys(checkedDeptIds, deptOptions.value, (n) => n.deptId))
 }
 
 async function submitDataScope() {

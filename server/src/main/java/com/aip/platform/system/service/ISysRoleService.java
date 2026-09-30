@@ -71,6 +71,14 @@ public interface ISysRoleService {
     List<Long> selectMenuIdsByRoleId(Long roleId);
 
     /**
+     * 查询角色已分配的部门ID（数据范围为"自定数据"时使用）
+     *
+     * @param roleId 角色ID
+     * @return 部门ID集合
+     */
+    List<Long> selectDeptIdsByRoleId(Long roleId);
+
+    /**
      * 新增角色（含角色菜单授权）
      *
      * @param role 角色
