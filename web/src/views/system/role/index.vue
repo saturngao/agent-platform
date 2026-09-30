@@ -325,11 +325,12 @@ function leafCheckedKeys(checkedIds = [], nodes = menuOptions.value, idOf = (n) 
   return leafs
 }
 
-/** 取角色已授权菜单 ID（后端返回 Long[] 数组） */
+/** 取角色已授权菜单 + 全量授权树（含按钮层） */
 async function fetchCheckedMenuIds(roleId, fallback = []) {
   try {
     const res = await roleMenuTree(roleId)
-    return Array.isArray(res) ? res : (res?.checkedKeys || fallback)
+    if (res?.menus?.length) menuOptions.value = normalizeMenu(res.menus)
+    return res?.checkedKeys || fallback
   } catch (e) {
     return fallback
   }

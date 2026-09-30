@@ -134,9 +134,9 @@ export function updateRoleDataScope(data) {
   return http.put('/system/role/dataScope', data)
 }
 
-// GET /system/role/menuTree/{roleId} -> Long[] 角色已授权的菜单ID数组（含半选父节点）
+// GET /system/menu/roleMenuTree/{roleId} -> {menus:全量菜单树(含按钮), checkedKeys:已授权菜单ID数组}
 export function roleMenuTree(roleId) {
-  return http.get(`/system/role/menuTree/${roleId}`)
+  return http.get(`/system/menu/roleMenuTree/${roleId}`)
 }
 
 // GET /system/role/deptTree/{roleId} -> Long[] 角色已授权的部门ID数组（自定数据权限回显）
