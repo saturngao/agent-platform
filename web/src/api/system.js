@@ -42,6 +42,11 @@ export function resetUserPwd(data) {
   return http.put('/system/user/resetPwd', data)
 }
 
+// PUT /system/user/updatePwd  body {oldPassword, newPassword}  当前登录用户自助修改密码
+export function updatePwd(data) {
+  return http.put('/system/user/updatePwd', data)
+}
+
 // PUT /system/user/status  body {userId, status}
 export function changeUserStatus(data) {
   return http.put('/system/user/status', data)

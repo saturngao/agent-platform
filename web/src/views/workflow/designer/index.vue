@@ -61,6 +61,7 @@
           <div class="panel-title">操作</div>
           <el-button size="small" :icon="Delete" style="width: 100%" @click="clearCanvas">清空画布</el-button>
           <div class="tip">拖拽或点击添加节点；点击节点配置属性；拖动节点端点连线。</div>
+          <div class="tip">画布左下角按钮：放大 / 缩小 / 适应画布（鼠标悬停有文字提示；按住 Ctrl + 滚轮可缩放，空格拖拽平移）。</div>
         </aside>
 
         <!-- 中间画布 -->
@@ -78,7 +79,17 @@
               </div>
             </template>
             <Background :gap="18" pattern="dots" />
-            <Controls />
+            <Controls position="bottom-left" :show-interactive="false">
+              <ControlButton title="放大" @click="zoomIn({ duration: 200 })">
+                <el-icon :size="16"><ZoomIn /></el-icon>
+              </ControlButton>
+              <ControlButton title="缩小" @click="zoomOut({ duration: 200 })">
+                <el-icon :size="16"><ZoomOut /></el-icon>
+              </ControlButton>
+              <ControlButton title="适应画布（一键查看全部节点）" @click="fitView({ padding: 0.2, duration: 300 })">
+                <el-icon :size="16"><FullScreen /></el-icon>
+              </ControlButton>
+            </Controls>
           </VueFlow>
           <div v-if="nodes.length === 0" class="canvas-empty">从左侧拖入或点击节点类型开始编排</div>
         </div>
@@ -222,18 +233,22 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Document, Promotion, VideoPlay, Back, Delete, Plus } from '@element-plus/icons-vue'
-import { VueFlow } from '@vue-flow/core'
+import { Document, Promotion, VideoPlay, Back, Delete, Plus, ZoomIn, ZoomOut, FullScreen } from '@element-plus/icons-vue'
+import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
-import { Controls } from '@vue-flow/controls'
+import { Controls, ControlButton } from '@vue-flow/controls'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
+import '@vue-flow/controls/dist/style.css'
 import { getDef, addDef, editDef, publishDef, runDef } from '@/api/workflow'
 import { modelOptions } from '@/api/llm'
 import { skillOptions, skillBinding } from '@/api/skill'
 
 const route = useRoute()
 const router = useRouter()
+
+// 画布缩放控制（供左下角 Controls 按钮使用）
+const { zoomIn, zoomOut, fitView } = useVueFlow()
 
 const def = reactive({
   defId: undefined,

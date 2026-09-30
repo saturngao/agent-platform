@@ -87,6 +87,16 @@ public interface ISysUserService {
     int resetPassword(Long userId, String password);
 
     /**
+     * 用户自助修改密码（校验旧密码）
+     *
+     * @param userId      用户ID
+     * @param oldPassword 旧密码明文
+     * @param newPassword 新密码明文
+     * @return 影响行数
+     */
+    int updatePassword(Long userId, String oldPassword, String newPassword);
+
+    /**
      * 修改用户状态
      *
      * @param userId 用户ID

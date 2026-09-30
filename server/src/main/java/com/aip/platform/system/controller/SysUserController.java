@@ -115,6 +115,28 @@ public class SysUserController {
         return R.ok(clearPassword(user));
     }
 
+    /**
+     * 当前登录用户修改密码（校验旧密码）
+     */
+    @PutMapping("/updatePwd")
+    public R<Void> updatePwd(@RequestBody PasswordBody body) {
+        Long userId = SecurityUtils.getUserId();
+        if (userId == null) {
+            return R.fail("请先登录");
+        }
+        userService.updatePassword(userId, body.getOldPassword(), body.getNewPassword());
+        return R.ok();
+    }
+
+    /** 修改密码请求体 */
+    @lombok.Data
+    public static class PasswordBody {
+        /** 旧密码 */
+        private String oldPassword;
+        /** 新密码 */
+        private String newPassword;
+    }
+
     /** 抹除密码，避免敏感信息外泄 */
     private User clearPassword(User user) {
         user.setPassword(null);

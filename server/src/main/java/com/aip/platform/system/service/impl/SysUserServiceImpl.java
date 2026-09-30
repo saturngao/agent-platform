@@ -189,6 +189,24 @@ public class SysUserServiceImpl extends ServiceImpl<UserMapper, User> implements
     }
 
     @Override
+    public int updatePassword(Long userId, String oldPassword, String newPassword) {
+        if (userId == null || StrUtil.isBlank(oldPassword) || StrUtil.isBlank(newPassword)) {
+            throw new BusinessException("旧密码与新密码不能为空");
+        }
+        User stored = baseMapper.selectById(userId);
+        if (stored == null) {
+            throw new BusinessException("用户不存在");
+        }
+        if (!SecurityUtils.matchesPassword(oldPassword, stored.getPassword())) {
+            throw new BusinessException("旧密码不正确");
+        }
+        if (SecurityUtils.matchesPassword(newPassword, stored.getPassword())) {
+            throw new BusinessException("新密码不能与旧密码相同");
+        }
+        return resetPassword(userId, newPassword);
+    }
+
+    @Override
     public int updateStatus(Long userId, Integer status) {
         if (userId == null || status == null) {
             throw new BusinessException("用户ID或状态不能为空");
