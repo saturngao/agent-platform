@@ -1,0 +1,180 @@
+@use './variables.scss' as *;
+
+/* ------------------------------- 侧边栏布局 ------------------------------- */
+
+.app-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+}
+
+.sidebar-container {
+  position: relative;
+  flex: 0 0 $sidebar-width;
+  width: $sidebar-width;
+  height: 100%;
+  background-color: $sidebar-bg;
+  border-right: 1px solid $border-color-light;
+  transition: width 0.28s;
+  overflow: hidden;
+  z-index: 1001;
+
+  .el-menu {
+    border: none;
+    height: 100%;
+    width: 100% !important;
+  }
+
+  .el-menu-item,
+  .el-sub-menu__title {
+    height: 46px;
+    line-height: 46px;
+    border-radius: $radius-small;
+    margin: 2px 8px;
+  }
+
+  .el-menu-item.is-active {
+    background-color: $sidebar-active-bg !important;
+    color: $sidebar-active-text !important;
+    font-weight: 500;
+  }
+
+  .el-menu-item:hover,
+  .el-sub-menu__title:hover {
+    background-color: $sidebar-hover-bg !important;
+  }
+
+  .el-menu--collapse {
+    width: $sidebar-collapsed-width;
+  }
+}
+
+.sidebar-container--collapsed {
+  flex: 0 0 $sidebar-collapsed-width;
+  width: $sidebar-collapsed-width;
+}
+
+.main-container {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  margin-left: 0;
+  transition: margin-left 0.28s;
+}
+
+/* Logo */
+.sidebar-logo-container {
+  position: relative;
+  width: 100%;
+  height: $navbar-height;
+  line-height: $navbar-height;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  overflow: hidden;
+  background-color: $sidebar-bg;
+  border-bottom: 1px solid $border-color-light;
+
+  .sidebar-logo {
+    width: 26px;
+    height: 26px;
+    margin-right: 8px;
+    flex-shrink: 0;
+  }
+
+  .sidebar-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: $sidebar-text;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &.collapse {
+    justify-content: center;
+    padding: 0;
+
+    .sidebar-title {
+      display: none;
+    }
+  }
+}
+
+/* 顶部导航条 */
+.navbar {
+  height: $navbar-height;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background-color: #fff;
+  border-bottom: 1px solid $border-color-light;
+  box-shadow: 0 1px 4px rgba(0, 21, 41, 0.04);
+
+  .navbar__left,
+  .navbar__right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .hamburger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    font-size: 18px;
+    cursor: pointer;
+    color: $text-color-regular;
+    border-radius: $radius-small;
+
+    &:hover {
+      background-color: $bg-color-page;
+    }
+  }
+
+  .navbar__user {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: $radius-small;
+
+    &:hover {
+      background-color: $bg-color-page;
+    }
+  }
+}
+
+/* 主区域 */
+.app-main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background-color: $bg-color-page;
+  padding: 16px;
+}
+
+/* 移动端遮罩 */
+.drawer-bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 999;
+}
+
+@media (max-width: 768px) {
+  .sidebar-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+  }
+}

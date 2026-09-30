@@ -1,0 +1,57 @@
+// ---------------------------------------------------------------------------
+// 全局变量（浅色主题）
+// 组件中如需使用，请显式 @use "@/styles/variables.scss" as *;
+// ---------------------------------------------------------------------------
+
+// 主题色
+$primary-color: #3b82f6;
+$primary-color-light: #60a5fa;
+$primary-color-dark: #2563eb;
+
+// 中性色
+$text-color-primary: #303133;
+$text-color-regular: #606266;
+$text-color-secondary: #909399;
+$text-color-placeholder: #a8abb2;
+
+$border-color-base: #e4e7ed;
+$border-color-light: #ebeef5;
+$border-color-lighter: #f2f6fc;
+
+$bg-color-page: #f5f7fa;
+$bg-color-card: #ffffff;
+
+// 侧边栏
+$sidebar-bg: #ffffff;
+$sidebar-text: #303133;
+$sidebar-active-bg: #ecf5ff;
+$sidebar-active-text: #3b82f6;
+$sidebar-hover-bg: #f5f7fa;
+
+// 布局
+$navbar-height: 56px;
+$sidebar-width: 220px;
+$sidebar-collapsed-width: 64px;
+
+// 圆角
+$radius-base: 8px;
+$radius-small: 6px;
+$radius-round: 999px;
+
+// 阴影
+$shadow-card: 0 1px 3px rgba(0, 21, 41, 0.06);
+$shadow-dropdown: 0 4px 16px rgba(0, 21, 41, 0.1);
+
+// 间距
+$page-padding: 16px;
+
+// Element Plus 变量覆盖（配合 element-plus 默认浅色主题）
+:root {
+  --el-color-primary: #{$primary-color};
+  --el-color-primary-light-3: #{$primary-color-light};
+  --el-color-primary-dark-2: #{$primary-color-dark};
+  --el-border-radius-base: #{$radius-small};
+  --ap-page-bg: #{$bg-color-page};
+  --ap-radius: #{$radius-base};
+  --ap-shadow-card: #{$shadow-card};
+}
