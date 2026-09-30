@@ -42,8 +42,8 @@
         <el-table-column label="排序" prop="postSort" width="80" align="center" />
         <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.status === '0' ? 'success' : 'danger'" size="small">
-              {{ row.status === '0' ? '正常' : '停用' }}
+            <el-tag :type="Number(row.status) === 0 ? 'success' : 'danger'" size="small">
+              {{ Number(row.status) === 0 ? '正常' : '停用' }}
             </el-tag>
           </template>
         </el-table-column>

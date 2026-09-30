@@ -34,8 +34,8 @@
             <el-table-column label="字典类型" prop="dictType" min-width="130" show-overflow-tooltip />
             <el-table-column label="状态" width="80" align="center">
               <template #default="{ row }">
-                <el-tag :type="row.status === '0' ? 'success' : 'danger'" size="small">
-                  {{ row.status === '0' ? '正常' : '停用' }}
+                <el-tag :type="Number(row.status) === 0 ? 'success' : 'danger'" size="small">
+                  {{ Number(row.status) === 0 ? '正常' : '停用' }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -94,8 +94,8 @@
             <el-table-column label="排序" prop="dictSort" width="70" align="center" />
             <el-table-column label="状态" width="80" align="center">
               <template #default="{ row }">
-                <el-tag :type="row.status === '0' ? 'success' : 'danger'" size="small">
-                  {{ row.status === '0' ? '正常' : '停用' }}
+                <el-tag :type="Number(row.status) === 0 ? 'success' : 'danger'" size="small">
+                  {{ Number(row.status) === 0 ? '正常' : '停用' }}
                 </el-tag>
               </template>
             </el-table-column>

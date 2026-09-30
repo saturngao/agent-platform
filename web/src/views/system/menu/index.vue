@@ -52,8 +52,9 @@
         <el-table-column label="路由地址" prop="path" min-width="140" show-overflow-tooltip />
         <el-table-column label="状态" width="80" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.status === '0' ? 'success' : 'danger'" size="small">
-              {{ row.status === '0' ? '正常' : '停用' }}
+            <!-- 后端返回数字 0/1，必须用 Number 归一化比较，字符串 '0' 会恒不等导致全部显示"停用" -->
+            <el-tag :type="Number(row.status) === 0 ? 'success' : 'danger'" size="small">
+              {{ Number(row.status) === 0 ? '正常' : '停用' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -293,7 +294,15 @@ async function handleUpdate(row) {
   } catch (e) {
     /* 使用行数据 */
   }
-  form.value = { ...defaultForm(), ...detail }
+  // 后端 status/visible/isCache 返回数字，radio 的 label 是字符串，
+  // 必须统一转字符串回显，否则两个单选组都不选中（同用户/角色页的坑）
+  form.value = {
+    ...defaultForm(),
+    ...detail,
+    visible: String(detail.visible ?? '0'),
+    status: String(detail.status ?? '0'),
+    isCache: String(detail.isCache ?? '0')
+  }
   title.value = '修改菜单'
   open.value = true
 }
