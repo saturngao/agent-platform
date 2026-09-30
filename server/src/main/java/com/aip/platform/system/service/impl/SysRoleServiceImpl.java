@@ -135,11 +135,18 @@ public class SysRoleServiceImpl extends ServiceImpl<RoleMapper, Role> implements
         if (role == null || role.getRoleId() == null) {
             throw new BusinessException("角色ID不能为空");
         }
-        validateRole(role);
-        int rows = baseMapper.updateById(role);
+        // 兼容"仅分配菜单权限"的调用（body 只有 roleId + menuIds）：
+        // 此时实体没有可更新字段，updateById 会生成不带 SET 的非法 SQL，必须跳过
+        boolean hasFields = StrUtil.isNotBlank(role.getRoleName()) || StrUtil.isNotBlank(role.getRoleKey())
+                || role.getRoleSort() != null || role.getStatus() != null || role.getDataScope() != null
+                || StrUtil.isNotBlank(role.getRemark());
+        if (hasFields) {
+            validateRole(role);
+            baseMapper.updateById(role);
+        }
         baseMapper.deleteRoleMenuByRoleId(role.getRoleId());
         insertRoleMenu(role);
-        return rows;
+        return 1;
     }
 
     @Override
