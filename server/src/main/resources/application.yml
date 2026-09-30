@@ -1,0 +1,102 @@
+server:
+  port: 8088
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: agent-platform
+  profiles:
+    active: dev
+
+  datasource:
+    url: jdbc:mysql://127.0.0.1:3306/ai_platform?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 30
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+
+  jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+    serialization:
+      write-dates-as-timestamps: false
+      fail-on-empty-beans: false
+    default-property-inclusion: non_null
+
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+
+  # 邮件：AI 总结推送用，可在「系统参数」中动态覆盖
+  mail:
+    host: smtp.qq.com
+    port: 465
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    protocol: smtp
+    test-connection: false
+    properties:
+      mail:
+        smtp:
+          auth: true
+          ssl:
+            enable: true
+          timeout: 15000
+          connectiontimeout: 15000
+          starttls:
+            enable: false
+            required: false
+
+  mvc:
+    throw-exception-if-no-handler-found: true
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.aip.platform.**.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+    jdbc-type-for-null: null
+    default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.MybatisEnumTypeHandler
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+      logic-delete-value: 2
+      logic-not-delete-value: 0
+
+logging:
+  level:
+    root: INFO
+    com.aip.platform: DEBUG
+    org.springframework.security: WARN
+
+# ============ 自定义配置 ============
+platform:
+  # JWT
+  jwt:
+    secret: aiPlatformJwtSecretKeyPleaseChangeItBeforeProductionDeployment2026
+    expire-minutes: 1440
+    header: Authorization
+  # 前端不做 CSRF，Token 放 Header
+  security:
+    # 无需登录即可访问的接口
+    permit-paths:
+      - /api/auth/login
+      - /api/auth/register
+      - /api/auth/captcha
+      - /api/health
+      - /
+      - /index.html
+      - /favicon.ico
+  upload:
+    path: ./uploads
