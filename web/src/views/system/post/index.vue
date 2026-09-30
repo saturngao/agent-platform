@@ -191,7 +191,12 @@ async function handleUpdate(row) {
   } catch (e) {
     /* 使用行数据 */
   }
-  form.value = { ...defaultForm(), ...detail }
+  // 后端 status 返回数字，radio label 是字符串，回显统一转字符串（同菜单页的坑）
+  form.value = {
+    ...defaultForm(),
+    ...detail,
+    status: String(detail.status ?? '0')
+  }
   title.value = '修改岗位'
   open.value = true
 }

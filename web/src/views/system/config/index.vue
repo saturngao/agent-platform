@@ -52,8 +52,9 @@
         <el-table-column label="参数键值" prop="configValue" min-width="140" show-overflow-tooltip />
         <el-table-column label="系统内置" width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.configType === 'Y' ? 'primary' : 'info'" size="small">
-              {{ row.configType === 'Y' ? '是' : '否' }}
+            <!-- 后端 configType 是数字 1/0（1=是内置），不能用字符串 'Y' 比较 -->
+            <el-tag :type="Number(row.configType) === 1 ? 'primary' : 'info'" size="small">
+              {{ Number(row.configType) === 1 ? '是' : '否' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -99,9 +100,10 @@
           <el-input v-model="form.configValue" placeholder="请输入参数键值" />
         </el-form-item>
         <el-form-item label="系统内置">
+          <!-- configType 是数字 1/0，radio 的 label 必须用数字绑定，字符串提交会 500 -->
           <el-radio-group v-model="form.configType">
-            <el-radio label="Y">是</el-radio>
-            <el-radio label="N">否</el-radio>
+            <el-radio :label="1">是</el-radio>
+            <el-radio :label="0">否</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="备注">
@@ -147,7 +149,7 @@ const defaultForm = () => ({
   configName: '',
   configKey: '',
   configValue: '',
-  configType: 'N',
+  configType: 0,
   remark: ''
 })
 const form = ref(defaultForm())
@@ -204,7 +206,12 @@ async function handleUpdate(row) {
   } catch (e) {
     /* 使用行数据 */
   }
-  form.value = { ...defaultForm(), ...detail }
+  // 后端 configType 是数字 1/0，归一化后回显（radio 用数字 label）
+  form.value = {
+    ...defaultForm(),
+    ...detail,
+    configType: Number(detail.configType ?? 0)
+  }
   title.value = '修改参数'
   open.value = true
 }

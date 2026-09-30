@@ -286,7 +286,12 @@ async function handleUpdateType(row) {
   } catch (e) {
     /* 使用行数据 */
   }
-  typeForm.value = { ...defaultTypeForm(), ...detail }
+  // 后端 status 返回数字，radio label 是字符串，回显统一转字符串
+  typeForm.value = {
+    ...defaultTypeForm(),
+    ...detail,
+    status: String(detail.status ?? '0')
+  }
   typeTitle.value = '修改字典类型'
   typeOpen.value = true
 }
@@ -412,7 +417,12 @@ async function handleUpdateData(row) {
   } catch (e) {
     /* 使用行数据 */
   }
-  dataForm.value = { ...defaultDataForm(), ...detail }
+  // 后端 status 返回数字，radio label 是字符串，回显统一转字符串
+  dataForm.value = {
+    ...defaultDataForm(),
+    ...detail,
+    status: String(detail.status ?? '0')
+  }
   dataTitle.value = '修改字典数据'
   dataOpen.value = true
 }
