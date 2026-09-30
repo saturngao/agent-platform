@@ -81,6 +81,22 @@ public class SysUserServiceImpl extends ServiceImpl<UserMapper, User> implements
     }
 
     @Override
+    public List<Long> selectRoleIdsByUserId(Long userId) {
+        if (userId == null) {
+            return List.of();
+        }
+        return baseMapper.selectRoleIdsByUserId(userId);
+    }
+
+    @Override
+    public List<Long> selectPostIdsByUserId(Long userId) {
+        if (userId == null) {
+            return List.of();
+        }
+        return baseMapper.selectPostIdsByUserId(userId);
+    }
+
+    @Override
     public LoginUser buildLoginUser(User user) {
         LoginUser loginUser = new LoginUser();
         loginUser.setUserId(user.getUserId());

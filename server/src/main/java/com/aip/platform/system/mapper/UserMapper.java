@@ -166,4 +166,22 @@ public interface UserMapper extends BaseMapper<User> {
      */
     @Select("SELECT COUNT(1) FROM sys_user_role WHERE role_id = #{roleId}")
     int countUserByRoleId(@Param("roleId") Long roleId);
+
+    /**
+     * 查询用户已关联的角色ID集合（回显用）
+     *
+     * @param userId 用户ID
+     * @return 角色ID集合
+     */
+    @Select("SELECT role_id FROM sys_user_role WHERE user_id = #{userId}")
+    List<Long> selectRoleIdsByUserId(@Param("userId") Long userId);
+
+    /**
+     * 查询用户已关联的岗位ID集合（回显用）
+     *
+     * @param userId 用户ID
+     * @return 岗位ID集合
+     */
+    @Select("SELECT post_id FROM sys_user_post WHERE user_id = #{userId}")
+    List<Long> selectPostIdsByUserId(@Param("userId") Long userId);
 }

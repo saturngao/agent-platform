@@ -38,7 +38,7 @@ public class SysUserController {
     }
 
     /**
-     * 用户详情
+     * 用户详情（含已关联的角色ID、岗位ID，供修改弹窗回显）
      */
     @GetMapping("/detail/{userId}")
     public R<User> detail(@PathVariable("userId") Long userId) {
@@ -46,6 +46,8 @@ public class SysUserController {
         if (user == null) {
             return R.fail("用户不存在");
         }
+        user.setRoleIds(userService.selectRoleIdsByUserId(userId));
+        user.setPostIds(userService.selectPostIdsByUserId(userId));
         return R.ok(clearPassword(user));
     }
 

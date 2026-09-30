@@ -46,6 +46,22 @@ public interface ISysUserService {
     User selectUserById(Long userId);
 
     /**
+     * 查询用户已关联的角色ID集合
+     *
+     * @param userId 用户ID
+     * @return 角色ID集合
+     */
+    List<Long> selectRoleIdsByUserId(Long userId);
+
+    /**
+     * 查询用户已关联的岗位ID集合
+     *
+     * @param userId 用户ID
+     * @return 岗位ID集合
+     */
+    List<Long> selectPostIdsByUserId(Long userId);
+
+    /**
      * 组装登录主体：角色、权限、部门、是否超管
      *
      * @param user 用户
