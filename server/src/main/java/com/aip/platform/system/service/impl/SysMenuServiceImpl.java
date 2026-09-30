@@ -98,6 +98,14 @@ public class SysMenuServiceImpl extends ServiceImpl<MenuMapper, Menu> implements
     }
 
     @Override
+    public Menu selectMenuById(Long menuId) {
+        if (menuId == null) {
+            return null;
+        }
+        return this.getById(menuId);
+    }
+
+    @Override
     public int insertMenu(Menu menu) {
         if (!checkNameUnique(menu)) {
             throw new BusinessException("新增菜单失败，同一层级下菜单名称已存在");

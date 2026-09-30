@@ -47,6 +47,18 @@ public class SysMenuController {
     }
 
     /**
+     * 菜单详情（修改弹窗回显）
+     */
+    @GetMapping("/{menuId}")
+    public R<Menu> detail(@PathVariable("menuId") Long menuId) {
+        Menu menu = menuService.selectMenuById(menuId);
+        if (menu == null) {
+            return R.fail("菜单不存在");
+        }
+        return R.ok(menu);
+    }
+
+    /**
      * 新增菜单
      */
     @PreAuthorize("@permissionChecker.has('system:menu:add')")

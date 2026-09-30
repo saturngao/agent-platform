@@ -44,6 +44,14 @@ public interface ISysMenuService {
     Set<String> selectPermsByUserId(Long userId);
 
     /**
+     * 按ID查询菜单
+     *
+     * @param menuId 菜单ID
+     * @return 菜单
+     */
+    Menu selectMenuById(Long menuId);
+
+    /**
      * 新增菜单
      *
      * @param menu 菜单

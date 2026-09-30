@@ -41,6 +41,18 @@ public class SysDeptController {
     }
 
     /**
+     * 部门详情（修改弹窗回显）
+     */
+    @GetMapping("/{deptId}")
+    public R<Dept> detail(@PathVariable("deptId") Long deptId) {
+        Dept dept = deptService.selectDeptById(deptId);
+        if (dept == null) {
+            return R.fail("部门不存在");
+        }
+        return R.ok(dept);
+    }
+
+    /**
      * 新增部门
      */
     @PreAuthorize("@permissionChecker.has('system:dept:add')")
