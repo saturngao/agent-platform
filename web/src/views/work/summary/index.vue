@@ -395,12 +395,25 @@ function handleDelete(row) {
   })
 }
 
+/** 拉取可选择的成员（每次实时拉取，确保修改过的邮箱等资料即时生效） */
+function loadMembers() {
+  return summaryMembers()
+    .then((res) => {
+      members.value = (res || []).filter((u) => u.email)
+    })
+    .catch(() => {
+      /* 拉取失败时保留原列表 */
+    })
+}
+
 function openMail(row) {
   current.value = row
   mailForm.subject = row.summaryTitle || 'AI 工作总结'
   mailForm.receivers = []
   mailForm.cc = []
   mailOpen.value = true
+  // 打开弹窗时重新拉取成员列表，邮箱等资料以库中最新的为准
+  loadMembers()
 }
 
 function doSendMail() {
@@ -437,9 +450,7 @@ onMounted(() => {
   modelOptions().then((res) => {
     modelList.value = res || []
   })
-  summaryMembers().then((res) => {
-    members.value = (res || []).filter((u) => u.email)
-  })
+  loadMembers()
   fetchDeptTree().then((res) => {
     deptTree.value = res || []
   })
