@@ -37,6 +37,18 @@ public class SysDictDataController {
     }
 
     /**
+     * 字典数据详情（修改弹窗回显）
+     */
+    @GetMapping("/{dictCode}")
+    public R<DictData> detail(@PathVariable("dictCode") Long dictCode) {
+        DictData dictData = dictService.selectDictDataById(dictCode);
+        if (dictData == null) {
+            return R.fail("字典数据不存在");
+        }
+        return R.ok(dictData);
+    }
+
+    /**
      * 新增字典数据
      */
     @PreAuthorize("@permissionChecker.has('system:dict:add')")

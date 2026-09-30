@@ -37,6 +37,18 @@ public class SysDictTypeController {
     }
 
     /**
+     * 字典类型详情（修改弹窗回显）
+     */
+    @GetMapping("/{dictId}")
+    public R<DictType> detail(@PathVariable("dictId") Long dictId) {
+        DictType dictType = dictService.selectDictTypeById(dictId);
+        if (dictType == null) {
+            return R.fail("字典类型不存在");
+        }
+        return R.ok(dictType);
+    }
+
+    /**
      * 新增字典类型
      */
     @PreAuthorize("@permissionChecker.has('system:dict:add')")

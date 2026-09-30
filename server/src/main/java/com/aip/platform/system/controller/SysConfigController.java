@@ -37,6 +37,18 @@ public class SysConfigController {
     }
 
     /**
+     * 参数详情（修改弹窗回显）
+     */
+    @GetMapping("/{configId}")
+    public R<Config> detail(@PathVariable("configId") Long configId) {
+        Config config = configService.selectConfigById(configId);
+        if (config == null) {
+            return R.fail("参数不存在");
+        }
+        return R.ok(config);
+    }
+
+    /**
      * 新增参数
      */
     @PreAuthorize("@permissionChecker.has('system:config:add')")

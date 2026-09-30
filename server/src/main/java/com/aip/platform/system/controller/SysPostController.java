@@ -37,6 +37,18 @@ public class SysPostController {
     }
 
     /**
+     * 岗位详情（修改弹窗回显）
+     */
+    @GetMapping("/{postId}")
+    public R<Post> detail(@PathVariable("postId") Long postId) {
+        Post post = postService.selectPostById(postId);
+        if (post == null) {
+            return R.fail("岗位不存在");
+        }
+        return R.ok(post);
+    }
+
+    /**
      * 新增岗位
      */
     @PreAuthorize("@permissionChecker.has('system:post:add')")
