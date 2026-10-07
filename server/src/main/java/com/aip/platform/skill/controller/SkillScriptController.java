@@ -104,6 +104,53 @@ public class SkillScriptController {
         return R.ok(scriptService.runInline(code, params, timeout, skillId));
     }
 
+    /**
+     * 读取脚本源码
+     *
+     * <p>优先返回技能目录里的文件内容；文件缺失时回退数据库里的历史源码。</p>
+     */
+    @GetMapping("/{scriptId}/content")
+    public R<Map<String, Object>> content(@PathVariable("scriptId") Long scriptId) {
+        SkillScript script = scriptService.selectDetail(scriptId);
+        if (script == null) {
+            return R.fail("脚本不存在");
+        }
+        Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("scriptId", script.getScriptId());
+        data.put("scriptCode", script.getScriptCode());
+        data.put("scriptPath", script.getScriptPath());
+        data.put("skillId", script.getSkillId());
+        data.put("fileExists", script.getFileExists());
+        data.put("content", scriptService.readScriptSource(scriptId));
+        return R.ok(data);
+    }
+
+    /** 保存脚本源码到技能目录文件 */
+    @PreAuthorize("@permissionChecker.has('skill:script:edit')")
+    @PutMapping("/{scriptId}/content")
+    public R<Void> saveContent(@PathVariable("scriptId") Long scriptId, @RequestBody Map<String, Object> body) {
+        String content = body == null ? null : (String) body.get("content");
+        if (StrUtil.isBlank(content)) {
+            return R.fail("脚本内容不能为空");
+        }
+        scriptService.writeScriptSource(scriptId, content);
+        return R.ok();
+    }
+
+    /**
+     * 重新扫描技能目录，把新增的 .py 自动注册成工具
+     * body: { skillId }
+     */
+    @PreAuthorize("@permissionChecker.has('skill:script:edit')")
+    @PostMapping("/sync")
+    public R<ISkillScriptService.SyncResult> sync(@RequestBody Map<String, Object> body) {
+        Long skillId = toLong(body == null ? null : body.get("skillId"));
+        if (skillId == null) {
+            return R.fail("技能ID不能为空");
+        }
+        return R.ok(scriptService.syncFromDirectory(skillId));
+    }
+
     /** 执行记录 */
     @GetMapping("/log")
     public R<List<SkillScriptLog>> logs(@RequestParam("scriptId") Long scriptId,

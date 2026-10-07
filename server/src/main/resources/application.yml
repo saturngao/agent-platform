@@ -102,6 +102,9 @@ platform:
     path: ./uploads
   # 技能脚本执行（Python）
   skill:
+    # 技能文件根目录：每个技能一个子目录，存放 SKILL.md 与 scripts/*.py
+    # 相对路径时相对服务启动目录，默认 server/data/skills
+    dir: ./data/skills
     python:
       # 总开关：false 时拒绝一切脚本执行
       enabled: true

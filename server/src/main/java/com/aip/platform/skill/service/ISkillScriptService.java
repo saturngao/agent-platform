@@ -4,6 +4,7 @@ import com.aip.platform.skill.entity.SkillScript;
 import com.aip.platform.skill.entity.SkillScriptLog;
 import com.aip.platform.skill.script.ScriptResult;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
@@ -62,6 +63,36 @@ public interface ISkillScriptService {
 
     /** 查询某脚本最近的执行记录 */
     List<SkillScriptLog> selectLogs(Long scriptId, Integer limit);
+
+    /**
+     * 扫描技能目录，把目录里的 .py 文件同步成脚本记录
+     *
+     * <p>新增的文件会自动注册为可调用工具；目录里已删除的文件会标记缺失（不直接删记录，
+     * 避免误删后丢失用途说明等人工配置）；早期把源码存数据库的内联脚本会顺带迁移成文件。</p>
+     *
+     * @param skillId 技能ID
+     * @return 同步结果：added 新增、moved 文件已丢失、migrated 从数据库迁移为文件
+     */
+    SyncResult syncFromDirectory(Long skillId);
+
+    /** 读取脚本文件内容（优先取文件，文件不存在时回退数据库里的内联源码） */
+    String readScriptSource(Long scriptId);
+
+    /** 保存脚本文件内容到技能目录 */
+    void writeScriptSource(Long scriptId, String source);
+
+    /** 目录同步结果 */
+    @lombok.Data
+    class SyncResult {
+        /** 新增注册的脚本编码 */
+        private List<String> added = new ArrayList<>();
+        /** 文件已丢失的脚本编码 */
+        private List<String> missing = new ArrayList<>();
+        /** 从数据库迁移为文件的脚本编码 */
+        private List<String> migrated = new ArrayList<>();
+        /** 技能目录下扫描到的 py 文件数 */
+        private int scanned;
+    }
 
     /**
      * 生成「可用工具」提示词片段，注入系统提示词后大模型才知道有哪些脚本可以调用。

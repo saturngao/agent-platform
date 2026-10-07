@@ -43,7 +43,15 @@ public class SkillScript extends BaseEntity {
     /** 脚本语言，当前仅支持 python */
     private String language;
 
-    /** 脚本源码 */
+    /** 脚本文件在技能目录下的相对路径，如 scripts/cost.py；为空表示旧的内联脚本 */
+    private String scriptPath;
+
+    /**
+     * 脚本源码
+     *
+     * <p>新模式下脚本以文件形式存放在技能目录，源码不入库，该字段仅保留早期内联脚本的兼容数据。
+     * 读取脚本内容请走文件内容接口。</p>
+     */
     private String content;
 
     /** 超时秒数 */
@@ -63,4 +71,12 @@ public class SkillScript extends BaseEntity {
     /** 非表字段：所属技能编码，便于日志与提示词定位 */
     @TableField(exist = false)
     private String skillCode;
+
+    /** 非表字段：脚本文件是否真实存在，列表页用于提示「文件缺失」 */
+    @TableField(exist = false)
+    private Boolean fileExists;
+
+    /** 非表字段：脚本源码（编辑时回显，不落库） */
+    @TableField(exist = false)
+    private String source;
 }

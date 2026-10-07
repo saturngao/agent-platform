@@ -57,6 +57,9 @@ public class Skill extends BaseEntity {
     /** 标签，逗号分隔 */
     private String tags;
 
+    /** 是否已在磁盘建立技能目录（SKILL.md + scripts/） */
+    private Integer dirFlag;
+
     /** 状态：0 正常 1 停用 */
     private Integer status;
 
@@ -78,4 +81,12 @@ public class Skill extends BaseEntity {
     /** 非表字段：绑定的工作流数量（列表展示用） */
     @TableField(exist = false)
     private Integer workflowCount;
+
+    /** 非表字段：技能目录中的文件数量，列表展示用 */
+    @TableField(exist = false)
+    private Integer fileCount;
+
+    /** 非表字段：技能目录绝对路径，便于排查 */
+    @TableField(exist = false)
+    private String dirPath;
 }

@@ -22,16 +22,25 @@ import java.util.stream.Stream;
 /**
  * Python 脚本执行器
  *
- * <p>把脚本写入独立临时目录后调用 python 进程执行，具备以下基础防护：</p>
+ * <p>两种执行形态：</p>
  * <ul>
- *   <li>总开关：配置 platform.skill.python.enabled 关闭后拒绝任何执行</li>
- *   <li>目录隔离：每个脚本一个临时目录，进程工作目录即该目录，脚本只能在此读写</li>
- *   <li>超时中断：单次执行超时上限由配置约束，超时后强制杀进程</li>
- *   <li>输出截断：stdout / stderr 均按字符数截断，避免超长输出撑爆上下文</li>
+ *   <li>{@link #runFile(Path, String, String, Integer)}：执行技能目录下的脚本文件，
+ *       进程工作目录就是技能目录，因此脚本可以相对路径读取资源文件（references/、assets/），
+ *       也可以 import 同目录或子目录里的其它 .py 模块，这是推荐形态；</li>
+ *   <li>{@link #run(String, String, Integer)}：执行一段源码字符串，写入临时目录后执行，
+ *       用于在线调试与兼容早期把源码存数据库的脚本。</li>
  * </ul>
  *
- * <p>入参传递约定：脚本同目录会生成 input.json，同时通过环境变量 SKILL_PARAMS 传入同样的 JSON 串，
- * 脚本二选一读取即可。</p>
+ * <p>基础防护：</p>
+ * <ul>
+ *   <li>总开关：platform.skill.python.enabled 关闭后拒绝任何执行</li>
+ *   <li>超时中断：超时后强制杀进程</li>
+ *   <li>输出截断：stdout / stderr 按字符数截断，避免撑爆模型上下文</li>
+ * </ul>
+ *
+ * <p>入参传递约定：入参 JSON 会写入独立临时目录的 input.json，同时通过环境变量
+ * SKILL_PARAMS 传入同样的字符串、通过 SKILL_INPUT_FILE 传入 input.json 的绝对路径，
+ * 脚本三选一读取即可。</p>
  */
 @Slf4j
 @Component
@@ -70,12 +79,63 @@ public class PythonScriptExecutor {
         return enabled;
     }
 
+    // ====================== 执行入口 ======================
+
     /**
-     * 执行 Python 脚本
+     * 执行技能目录下的脚本文件
+     *
+     * @param skillDir  技能目录（进程工作目录，脚本内可用相对路径访问该目录下的资源）
+     * @param relScript 脚本相对技能目录的路径，如 scripts/cost.py
+     * @param paramsJson 入参 JSON 字符串，可为 null
+     * @param timeoutSec 期望超时秒数
+     * @return 执行结果
+     */
+    public ScriptResult runFile(Path skillDir, String relScript, String paramsJson, Integer timeoutSec) {
+        if (!enabled) {
+            return ScriptResult.fail("脚本执行功能已关闭，请在服务端配置 platform.skill.python.enabled=true 后重试");
+        }
+        if (skillDir == null || !Files.isDirectory(skillDir)) {
+            return ScriptResult.fail("技能目录不存在：" + skillDir);
+        }
+        if (relScript == null || relScript.trim().isEmpty()) {
+            return ScriptResult.fail("脚本路径为空");
+        }
+        String rel = relScript.replace('\\', '/').trim();
+        Path script = skillDir.resolve(rel).normalize();
+        if (!script.startsWith(skillDir.normalize())) {
+            return ScriptResult.fail("非法的脚本路径：" + relScript);
+        }
+        if (!Files.isRegularFile(script)) {
+            return ScriptResult.fail("脚本文件不存在：" + rel + "，请确认文件已上传或重新扫描技能目录");
+        }
+
+        int timeout = resolveTimeout(timeoutSec);
+        String params = (paramsJson == null || paramsJson.trim().isEmpty()) ? "{}" : paramsJson.trim();
+        Path inputDir = null;
+        try {
+            inputDir = createWorkDir();
+            Path inputFile = inputDir.resolve("input.json");
+            Files.writeString(inputFile, params, StandardCharsets.UTF_8);
+
+            List<String> argv = new ArrayList<>();
+            argv.add(command);
+            argv.add(rel);
+
+            return execute(skillDir, argv, params, inputFile.toString(), timeout);
+        } catch (Exception e) {
+            log.warn("执行脚本文件失败 {}: {}", rel, e.getMessage());
+            return ScriptResult.fail("执行脚本失败：" + e.getMessage());
+        } finally {
+            deleteQuietly(inputDir);
+        }
+    }
+
+    /**
+     * 执行一段源码字符串（在线调试 / 兼容旧数据）
      *
      * @param code       脚本源码
      * @param paramsJson 入参 JSON 字符串，可为 null
-     * @param timeoutSec 期望超时秒数，为空或越界时取默认值/上限
+     * @param timeoutSec 期望超时秒数
      * @return 执行结果
      */
     public ScriptResult run(String code, String paramsJson, Integer timeoutSec) {
@@ -85,25 +145,49 @@ public class PythonScriptExecutor {
         if (code == null || code.trim().isEmpty()) {
             return ScriptResult.fail("脚本内容为空");
         }
-
         int timeout = resolveTimeout(timeoutSec);
         String params = (paramsJson == null || paramsJson.trim().isEmpty()) ? "{}" : paramsJson.trim();
 
         Path dir = null;
-        long start = System.currentTimeMillis();
-        Process process = null;
         try {
             dir = createWorkDir();
             Files.writeString(dir.resolve("main.py"), code, StandardCharsets.UTF_8);
-            Files.writeString(dir.resolve("input.json"), params, StandardCharsets.UTF_8);
+            Path inputFile = dir.resolve("input.json");
+            Files.writeString(inputFile, params, StandardCharsets.UTF_8);
 
-            ProcessBuilder pb = new ProcessBuilder(command, "main.py");
-            pb.directory(dir.toFile());
+            List<String> argv = new ArrayList<>();
+            argv.add(command);
+            argv.add("main.py");
+
+            return execute(dir, argv, params, inputFile.toString(), timeout);
+        } catch (Exception e) {
+            log.warn("执行 Python 脚本失败: {}", e.getMessage());
+            return ScriptResult.fail("执行脚本失败：" + e.getMessage());
+        } finally {
+            deleteQuietly(dir);
+        }
+    }
+
+    // ====================== 核心执行 ======================
+
+    private ScriptResult execute(Path cwd, List<String> argv, String params, String inputFile, int timeout) {
+        long start = System.currentTimeMillis();
+        Process process = null;
+        try {
+            ProcessBuilder pb = new ProcessBuilder(argv);
+            pb.directory(cwd.toFile());
             pb.redirectErrorStream(false);
             pb.environment().put("PYTHONIOENCODING", "utf-8");
             pb.environment().put("PYTHONUNBUFFERED", "1");
             pb.environment().put("PYTHONDONTWRITEBYTECODE", "1");
             pb.environment().put("SKILL_PARAMS", params);
+            pb.environment().put("SKILL_INPUT_FILE", inputFile);
+            pb.environment().put("SKILL_DIR", cwd.toAbsolutePath().toString());
+            // 让脚本可以 import 技能目录下任意子目录里的模块
+            String existingPath = pb.environment().get("PYTHONPATH");
+            pb.environment().put("PYTHONPATH",
+                    (existingPath == null || existingPath.isEmpty()) ? cwd.toAbsolutePath().toString()
+                            : cwd.toAbsolutePath() + File.pathSeparator + existingPath);
 
             final Process proc = pb.start();
             process = proc;
@@ -152,7 +236,7 @@ public class PythonScriptExecutor {
 
         } catch (Exception e) {
             int cost = (int) (System.currentTimeMillis() - start);
-            log.warn("执行 Python 脚本失败: {}", e.getMessage());
+            log.warn("启动 Python 进程失败: {}", e.getMessage());
             String msg = e.getMessage() == null ? e.toString() : e.getMessage();
             if (msg.contains("No such file") || msg.contains("cannot run program") || msg.contains("IOException")) {
                 msg = "无法启动 Python 进程，请检查服务端 python 命令配置（platform.skill.python.command，当前为 "
@@ -172,7 +256,6 @@ public class PythonScriptExecutor {
             if (process != null && process.isAlive()) {
                 process.destroyForcibly();
             }
-            deleteQuietly(dir);
         }
     }
 

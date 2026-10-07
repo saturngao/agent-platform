@@ -34,7 +34,7 @@
       <div class="table-toolbar">
         <div>
           <el-button type="primary" icon="Plus" @click="handleAdd">新建技能</el-button>
-          <el-button type="warning" icon="Upload" @click="importOpen = true">导入技能</el-button>
+          <el-button type="warning" icon="Upload" @click="openImport">上传 / 导入技能</el-button>
           <el-button icon="Goods" @click="marketOpen = true">内置技能市场</el-button>
           <el-button
             type="danger"
@@ -189,7 +189,7 @@
       </el-form>
         </el-tab-pane>
 
-        <!-- 脚本页签：给技能挂 Python 脚本，对话中可被模型自动调用 -->
+        <!-- 脚本页签：脚本以文件形式放在技能目录 scripts/ 下，对话中可被模型自动调用 -->
         <el-tab-pane name="script">
           <template #label>
             脚本<span v-if="scripts.length" class="tab-badge">{{ scripts.length }}</span>
@@ -198,25 +198,39 @@
           <el-empty v-if="!form.skillId" description="技能保存后即可添加脚本" :image-size="70" />
           <template v-else>
             <div class="script-toolbar">
-              <el-button type="primary" icon="Plus" size="small" @click="openScript()">新增脚本</el-button>
-              <el-button icon="Refresh" size="small" @click="loadScripts">刷新</el-button>
+              <el-button type="primary" icon="Plus" size="small" @click="openScript()">新建脚本文件</el-button>
+              <el-button icon="Refresh" size="small" @click="handleSyncScripts">重新扫描目录</el-button>
+              <el-button icon="Upload" size="small" @click="pickScriptFiles">上传脚本文件</el-button>
               <span class="script-tip">
-                脚本编码会被注入提示词，智能体对话时模型可自主决定调用哪个脚本
+                脚本是技能目录里的 .py 文件（默认 scripts/ 下），编码会被注入提示词，对话时模型可自主调用；
+                下划线开头的 .py 视为内部模块，不注册为工具
               </span>
             </div>
             <el-table :data="scripts" size="small" border>
-              <el-table-column prop="scriptCode" label="编码" width="150" />
-              <el-table-column prop="scriptName" label="名称" min-width="130" />
-              <el-table-column prop="description" label="用途说明" min-width="180" show-overflow-tooltip />
-              <el-table-column prop="timeoutSec" label="超时(秒)" width="90" align="center" />
-              <el-table-column label="状态" width="80" align="center">
+              <el-table-column prop="scriptCode" label="编码" width="140" />
+              <el-table-column prop="scriptName" label="名称" min-width="110" />
+              <el-table-column prop="scriptPath" label="文件" min-width="160" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <span class="file-path">{{ row.scriptPath || '（未关联文件）' }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="description" label="用途说明" min-width="160" show-overflow-tooltip />
+              <el-table-column prop="timeoutSec" label="超时(秒)" width="86" align="center" />
+              <el-table-column label="状态" width="76" align="center">
                 <template #default="{ row }">
                   <el-tag size="small" :type="Number(row.status) === 0 ? 'success' : 'info'">
                     {{ Number(row.status) === 0 ? '正常' : '停用' }}
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="190" align="center">
+              <el-table-column label="文件" width="76" align="center">
+                <template #default="{ row }">
+                  <el-tag size="small" :type="row.fileExists === false ? 'danger' : 'success'">
+                    {{ row.fileExists === false ? '缺失' : '存在' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="180" align="center">
                 <template #default="{ row }">
                   <el-button link type="primary" @click="openScript(row)">编辑</el-button>
                   <el-button link type="success" @click="openScript(row, true)">运行</el-button>
@@ -224,12 +238,98 @@
                 </template>
               </el-table-column>
               <template #empty>
-                <div class="empty-tip">该技能还没有脚本，点击「新增脚本」添加一个 Python 脚本</div>
+                <div class="empty-tip">
+                  该技能还没有脚本，可「新建脚本文件」或「重新扫描目录」把已上传的 .py 注册进来
+                </div>
               </template>
             </el-table>
           </template>
         </el-tab-pane>
+
+        <!-- 文件页签：技能目录里的全部文件 -->
+        <el-tab-pane name="file">
+          <template #label>
+            文件<span v-if="fileTree.length" class="tab-badge">{{ fileTree.length }}</span>
+          </template>
+
+          <el-empty v-if="!form.skillId" description="技能保存后即可管理目录文件" :image-size="70" />
+          <template v-else>
+            <div class="script-toolbar">
+              <el-button type="primary" icon="Upload" size="small" @click="pickDirFiles">上传文件/文件夹</el-button>
+              <el-button icon="Plus" size="small" @click="newFile">新建文件</el-button>
+              <el-button icon="Refresh" size="small" @click="loadFiles">刷新</el-button>
+              <el-button icon="Download" size="small" @click="exportDir">导出 ZIP</el-button>
+              <span class="script-tip" :title="skillRootPath">目录：{{ form.skillCode || '-' }}/</span>
+            </div>
+            <div class="file-panel">
+              <div class="file-tree">
+                <el-tree
+                  :data="fileTree"
+                  :props="{ label: 'name', children: 'children' }"
+                  node-key="path"
+                  highlight-current
+                  default-expand-all
+                  @node-click="onFileClick"
+                >
+                  <template #default="{ data }">
+                    <span class="tree-node">
+                      <span class="tree-icon">{{ data.dir ? '📁' : fileIcon(data.name) }}</span>
+                      <span>{{ data.name }}</span>
+                      <el-button
+                        v-if="!data.dir"
+                        link
+                        type="danger"
+                        size="small"
+                        class="tree-del"
+                        @click.stop="removeFile(data)"
+                      >
+                        删除
+                      </el-button>
+                    </span>
+                  </template>
+                </el-tree>
+              </div>
+              <div class="file-editor">
+                <template v-if="currentFile">
+                  <div class="file-editor__head">
+                    <span>{{ currentFile }}</span>
+                    <el-button type="primary" size="small" :loading="fileSaving" @click="saveFile">
+                      保存文件
+                    </el-button>
+                  </div>
+                  <el-input
+                    v-model="fileContent"
+                    type="textarea"
+                    :rows="18"
+                    class="code-area"
+                    placeholder="文件内容"
+                  />
+                </template>
+                <el-empty v-else description="左侧选择文件后在这里编辑" :image-size="70" />
+              </div>
+            </div>
+          </template>
+        </el-tab-pane>
       </el-tabs>
+
+      <!-- 隐藏的文件选择器：目录上传用 webkitdirectory，脚本上传用普通多选 -->
+      <input
+        ref="dirInputRef"
+        type="file"
+        webkitdirectory
+        directory
+        multiple
+        style="display: none"
+        @change="onDirPicked"
+      />
+      <input
+        ref="fileInputRef"
+        type="file"
+        multiple
+        accept=".py,.md,.txt,.json,.csv,.tsv,.yaml,.yml,.sql,.ini,.toml"
+        style="display: none"
+        @change="onScriptFilesPicked"
+      />
 
       <template #footer>
         <el-button @click="open = false">取 消</el-button>
@@ -270,6 +370,12 @@
             placeholder='JSON 样例，如 {"table_rows": 100000, "selectivity": 0.01}'
           />
         </el-form-item>
+        <el-form-item label="文件路径">
+          <el-input
+            v-model="scriptForm.scriptPath"
+            placeholder="技能目录下的相对路径，如 scripts/explain_cost.py"
+          />
+        </el-form-item>
         <el-form-item label="超时(秒)">
           <el-input-number v-model="scriptForm.timeoutSec" :min="1" :max="120" />
         </el-form-item>
@@ -279,7 +385,7 @@
             type="textarea"
             :rows="14"
             class="code-area"
-            placeholder="在这里写 Python 代码"
+            placeholder="在这里写 Python 代码，保存后会写入技能目录下对应的 .py 文件"
           />
         </el-form-item>
       </el-form>
@@ -288,8 +394,8 @@
         type="info"
         :closable="false"
         show-icon
-        title="入参与出参约定"
-        description="脚本同目录会生成 input.json，环境变量 SKILL_PARAMS 传入同样的 JSON 串，二选一读取即可；print 到 stdout 的内容会作为执行结果返回。"
+        title="脚本以文件形式存放，执行工作目录就是技能目录"
+        description="入参通过环境变量 SKILL_PARAMS（JSON 字符串）或 SKILL_INPUT_FILE 指向的 input.json 传入；脚本可直接相对路径读取目录里的资源文件，也能 import 同目录的其它 .py 模块；print 到 stdout 的内容作为执行结果返回。"
         style="margin-bottom: 12px"
       />
 
@@ -334,37 +440,131 @@
       </template>
     </el-dialog>
 
-    <!-- 导入弹窗 -->
-    <el-dialog v-model="importOpen" title="导入技能" width="700px" append-to-body destroy-on-close>
-      <el-alert
-        type="info"
-        :closable="false"
-        show-icon
-        title="支持粘贴 SKILL.md 全文"
-        description="若内容含 YAML frontmatter（--- 包裹的 name / description），系统会自动解析出名称与简介。"
-        style="margin-bottom: 14px"
-      />
-      <el-form :model="importForm" label-width="86px">
-        <el-form-item label="技能内容" required>
-          <el-input
-            v-model="importForm.content"
-            type="textarea"
-            :rows="14"
-            placeholder="把别人发布的 SKILL.md 内容整段粘贴到这里"
+    <!-- 上传 / 导入弹窗 -->
+    <el-dialog v-model="importOpen" title="上传 / 导入技能" width="760px" append-to-body destroy-on-close>
+      <el-tabs v-model="importTab">
+        <!-- 方式一：上传整个技能文件夹 -->
+        <el-tab-pane label="上传文件夹" name="folder">
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            title="选择你已经写好的技能目录"
+            description="目录里应包含 SKILL.md 与 scripts/（里面放 Python 脚本）。选择文件夹后系统按原目录结构整包上传，scripts 下的 .py 会自动注册为可调用工具。"
+            style="margin-bottom: 14px"
           />
-        </el-form-item>
-        <el-form-item label="名称">
-          <el-input v-model="importForm.skillName" placeholder="留空则自动从 frontmatter 解析" />
-        </el-form-item>
-        <el-form-item label="分类">
-          <el-select v-model="importForm.category" placeholder="请选择" clearable style="width: 100%">
-            <el-option v-for="c in categories" :key="c.value" :label="c.label" :value="c.value" />
-          </el-select>
-        </el-form-item>
+          <div class="upload-zone" @click="pickFolder">
+            <el-icon class="upload-icon"><FolderOpened /></el-icon>
+            <div class="upload-text">点击选择技能文件夹</div>
+            <div class="upload-sub">支持子目录，保留原有目录结构</div>
+          </div>
+          <input
+            ref="folderInput"
+            type="file"
+            webkitdirectory
+            directory
+            multiple
+            style="display: none"
+            @change="onFolderPicked"
+          />
+          <div v-if="folderFiles.length" class="file-list">
+            <div class="file-list__head">
+              已选择 {{ folderFiles.length }} 个文件
+              <el-button link type="danger" @click="folderFiles = []">清空</el-button>
+            </div>
+            <ul>
+              <li v-for="f in folderFiles.slice(0, 12)" :key="f.path">{{ f.path }}</li>
+              <li v-if="folderFiles.length > 12" class="file-more">
+                …等共 {{ folderFiles.length }} 个文件
+              </li>
+            </ul>
+          </div>
+        </el-tab-pane>
+
+        <!-- 方式二：上传 ZIP 包 -->
+        <el-tab-pane label="上传 ZIP 包" name="zip">
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            title="把技能目录打包成 ZIP 上传"
+            description="ZIP 内可以是技能目录本身，也可以是直接包含 SKILL.md 与 scripts/ 的文件列表。"
+            style="margin-bottom: 14px"
+          />
+          <div class="upload-zone" @click="pickZip">
+            <el-icon class="upload-icon"><UploadFilled /></el-icon>
+            <div class="upload-text">点击选择 ZIP 技能包</div>
+            <div class="upload-sub">单个压缩包不超过 20MB</div>
+          </div>
+          <input
+            ref="zipInput"
+            type="file"
+            accept=".zip"
+            style="display: none"
+            @change="onZipPicked"
+          />
+          <div v-if="zipFile" class="file-list">
+            <div class="file-list__head">
+              已选择：{{ zipFile.name }}（{{ Math.ceil(zipFile.size / 1024) }} KB）
+            </div>
+            <div v-if="zipPreview" class="zip-preview">
+              <div><b>技能名：</b>{{ zipPreview.name || zipPreview.skillName || '（未解析到）' }}</div>
+              <div v-if="zipPreview.description"><b>简介：</b>{{ zipPreview.description }}</div>
+              <div><b>脚本：</b>{{ (zipPreview.scripts || []).join('、') || '（无）' }}</div>
+              <div><b>文件数：</b>{{ zipPreview.fileCount }}</div>
+            </div>
+          </div>
+        </el-tab-pane>
+
+        <!-- 方式三：粘贴 SKILL.md -->
+        <el-tab-pane label="粘贴内容" name="text">
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            title="支持粘贴 SKILL.md 全文"
+            description="若内容含 YAML frontmatter（--- 包裹的 name / description），系统会自动解析出名称与简介。此方式只导入说明，不带脚本文件。"
+            style="margin-bottom: 14px"
+          />
+          <el-form :model="importForm" label-width="86px">
+            <el-form-item label="技能内容" required>
+              <el-input
+                v-model="importForm.content"
+                type="textarea"
+                :rows="12"
+                placeholder="把别人发布的 SKILL.md 内容整段粘贴到这里"
+              />
+            </el-form-item>
+            <el-form-item label="名称">
+              <el-input v-model="importForm.skillName" placeholder="留空则自动从 frontmatter 解析" />
+            </el-form-item>
+            <el-form-item label="分类">
+              <el-select v-model="importForm.category" placeholder="请选择" clearable style="width: 100%">
+                <el-option v-for="c in categories" :key="c.value" :label="c.label" :value="c.value" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+      </el-tabs>
+
+      <el-form label-width="86px" style="margin-top: 14px">
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="技能编码">
+              <el-input v-model="uploadCode" placeholder="留空则按目录名 / frontmatter 自动生成" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="同名处理">
+              <el-switch v-model="uploadOverwrite" active-text="覆盖已有" inactive-text="另建副本" />
+            </el-form-item>
+          </el-col>
+        </el-row>
       </el-form>
+
       <template #footer>
         <el-button @click="importOpen = false">取 消</el-button>
-        <el-button type="primary" :loading="importLoading" @click="submitImport">导入</el-button>
+        <el-button type="primary" :loading="importLoading" @click="submitImport">导 入</el-button>
       </template>
     </el-dialog>
 
@@ -411,6 +611,7 @@
 <script setup>
 import { ref, reactive, onMounted, computed, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { FolderOpened, UploadFilled } from '@element-plus/icons-vue'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js'
 import {
@@ -426,7 +627,21 @@ import {
   editSkillScript,
   delSkillScript,
   runSkillScript,
-  runInlineScript
+  runInlineScript,
+  readScriptContent,
+  saveScriptContent,
+  syncSkillScripts,
+  skillRoot,
+  skillFiles,
+  readSkillFile,
+  writeSkillFile,
+  deleteSkillFile,
+  uploadSkillFiles,
+  reloadSkill,
+  exportSkill,
+  importSkillFolder,
+  importSkillZip,
+  previewSkillZip
 } from '@/api/skill'
 
 const md = new MarkdownIt({
@@ -529,8 +744,32 @@ async function loadScripts() {
   }
 }
 
-/** 打开脚本编辑弹窗；runOnly=true 时直接进入运行态 */
-function openScript(row, runOnly = false) {
+/** 重新扫描技能目录：目录里新增的 .py 自动注册为工具 */
+async function handleSyncScripts() {
+  if (!form.value.skillId) return
+  try {
+    const res = await syncSkillScripts(form.value.skillId)
+    const added = res?.added || []
+    const migrated = res?.migrated || []
+    const missing = res?.missing || []
+    if (!added.length && !migrated.length && !missing.length) {
+      ElMessage.info(`扫描到 ${res?.scanned || 0} 个 .py 文件，没有变化`)
+    } else {
+      ElMessage.success(
+        `新增 ${added.length} 个${added.length ? '（' + added.join('、') + '）' : ''}` +
+          (migrated.length ? `，迁移 ${migrated.length} 个历史脚本为文件` : '') +
+          (missing.length ? `，${missing.length} 个脚本文件缺失` : '')
+      )
+    }
+    await loadScripts()
+    await loadFiles()
+  } catch (e) {
+    /* 统一提示 */
+  }
+}
+
+/** 打开脚本编辑弹窗；runOnly=true 时读取文件后直接运行 */
+async function openScript(row, runOnly = false) {
   runResult.value = null
   scriptForm.value = {
     ...defaultScriptForm(),
@@ -538,11 +777,26 @@ function openScript(row, runOnly = false) {
     skillId: form.value.skillId,
     timeoutSec: Number(row?.timeoutSec) || 30
   }
-  originContent = row?.content || ''
-  scriptTitle.value = row?.scriptId ? '编辑脚本' : '新增脚本'
+  // 脚本源码存在技能目录的文件里，打开时从文件读回来
+  if (row?.scriptId) {
+    try {
+      const res = await readScriptContent(row.scriptId)
+      scriptForm.value.content = res?.content || ''
+      scriptForm.value.scriptPath = res?.scriptPath || row.scriptPath || ''
+    } catch (e) {
+      scriptForm.value.content = row.content || ''
+    }
+  } else {
+    scriptForm.value.scriptPath = row?.scriptPath || `scripts/${scriptForm.value.scriptCode || 'main'}.py`
+  }
+  originContent = scriptForm.value.content || ''
+  scriptTitle.value = row?.scriptId
+    ? `编辑脚本${scriptForm.value.scriptPath ? '（' + scriptForm.value.scriptPath + '）' : ''}`
+    : '新建脚本文件'
   scriptOpen.value = true
   if (runOnly) {
-    nextTick(() => runTest())
+    await nextTick()
+    await runTest()
   }
 }
 
@@ -561,14 +815,19 @@ async function submitScript() {
     delete payload.testParams
     if (scriptForm.value.scriptId) {
       await editSkillScript(payload)
+      // 内容有改动时单独写回技能目录下的 .py 文件
+      if (scriptForm.value.content !== originContent) {
+        await saveScriptContent(scriptForm.value.scriptId, { content: scriptForm.value.content })
+      }
       ElMessage.success('脚本修改成功')
     } else {
       await addSkillScript(payload)
-      ElMessage.success('脚本新增成功')
+      ElMessage.success('脚本文件创建成功')
     }
     originContent = scriptForm.value.content
     scriptOpen.value = false
     await loadScripts()
+    await loadFiles()
   } catch (e) {
     /* 统一提示 */
   } finally {
@@ -591,7 +850,10 @@ async function removeScript(row) {
   await loadScripts()
 }
 
-/** 运行测试：内容未改动时跑已保存脚本（落执行记录），否则以调试模式跑当前编辑内容 */
+/**
+ * 运行测试：脚本已保存时先确保文件内容与编辑器一致，再执行技能目录里的脚本文件；
+ * 未保存的新脚本走调试执行。
+ */
 async function runTest() {
   if (!scriptForm.value.content || !scriptForm.value.content.trim()) {
     ElMessage.warning('请先填写脚本内容')
@@ -604,15 +866,20 @@ async function runTest() {
   runLoading.value = true
   runResult.value = null
   try {
-    const unchanged = scriptForm.value.scriptId && scriptForm.value.content === originContent
-    runResult.value = unchanged
-      ? await runSkillScript({ scriptId: scriptForm.value.scriptId, params })
-      : await runInlineScript({
-          code: scriptForm.value.content,
-          params,
-          timeoutSec: scriptForm.value.timeoutSec,
-          skillId: form.value.skillId
-        })
+    if (scriptForm.value.scriptId) {
+      if (scriptForm.value.content !== originContent) {
+        await saveScriptContent(scriptForm.value.scriptId, { content: scriptForm.value.content })
+        originContent = scriptForm.value.content
+      }
+      runResult.value = await runSkillScript({ scriptId: scriptForm.value.scriptId, params })
+    } else {
+      runResult.value = await runInlineScript({
+        code: scriptForm.value.content,
+        params,
+        timeoutSec: scriptForm.value.timeoutSec,
+        skillId: form.value.skillId
+      })
+    }
   } catch (e) {
     /* 统一提示 */
   } finally {
@@ -620,11 +887,221 @@ async function runTest() {
   }
 }
 
-/** 打开技能弹窗后同步加载脚本列表 */
+/** 打开技能弹窗后同步加载脚本与文件 */
 async function afterOpenSkill() {
   activeTab.value = 'base'
   runResult.value = null
+  fileTree.value = []
+  currentFile.value = ''
+  fileContent.value = ''
+  await Promise.all([loadScripts(), loadFiles()])
+}
+
+/* ------------------------------ 技能目录文件 ------------------------------ */
+const fileTree = ref([])
+const currentFile = ref('')
+const fileContent = ref('')
+const fileSaving = ref(false)
+const dirInputRef = ref()
+const fileInputRef = ref()
+
+async function loadFiles() {
+  if (!form.value.skillId) {
+    fileTree.value = []
+    return
+  }
+  try {
+    fileTree.value = (await skillFiles(form.value.skillId)) || []
+  } catch (e) {
+    fileTree.value = []
+  }
+}
+
+const fileIcon = (name) => {
+  const n = (name || '').toLowerCase()
+  if (n.endsWith('.py')) return '🐍'
+  if (n.endsWith('.md')) return '📝'
+  if (n.endsWith('.json')) return '🧾'
+  if (n.endsWith('.csv') || n.endsWith('.tsv')) return '📊'
+  if (n.endsWith('.yaml') || n.endsWith('.yml')) return '⚙️'
+  return '📄'
+}
+
+async function onFileClick(data) {
+  if (!data || data.dir) return
+  currentFile.value = data.path
+  try {
+    const res = await readSkillFile(form.value.skillId, data.path)
+    fileContent.value = res?.content || ''
+  } catch (e) {
+    fileContent.value = ''
+  }
+}
+
+async function saveFile() {
+  if (!currentFile.value) return
+  fileSaving.value = true
+  try {
+    await writeSkillFile(form.value.skillId, { path: currentFile.value, content: fileContent.value })
+    ElMessage.success('文件已保存')
+  } catch (e) {
+    /* 统一提示 */
+  } finally {
+    fileSaving.value = false
+  }
+}
+
+async function newFile() {
+  try {
+    const { value } = await ElMessageBox.prompt('文件路径（相对技能目录）', '新建文件', {
+      inputPlaceholder: 'scripts/my_tool.py 或 references/guide.md',
+      confirmButtonText: '创建',
+      cancelButtonText: '取消'
+    })
+    const path = (value || '').trim()
+    if (!path) return
+    await writeSkillFile(form.value.skillId, { path, content: '' })
+    ElMessage.success('文件已创建')
+    await loadFiles()
+    if (path.endsWith('.py')) {
+      await handleSyncScripts()
+    }
+  } catch (e) {
+    /* 取消或失败 */
+  }
+}
+
+async function removeFile(data) {
+  try {
+    await ElMessageBox.confirm(`确认删除文件「${data.path}」？`, '警告', {
+      type: 'warning',
+      confirmButtonText: '确定',
+      cancelButtonText: '取消'
+    })
+  } catch (e) {
+    return
+  }
+  await deleteSkillFile(form.value.skillId, data.path)
+  if (currentFile.value === data.path) {
+    currentFile.value = ''
+    fileContent.value = ''
+  }
+  ElMessage.success('删除成功')
+  await loadFiles()
   await loadScripts()
+}
+
+/** 上传文件到技能目录（文件夹或单文件） */
+function pickDirFiles() {
+  dirInputRef.value?.click()
+}
+function pickScriptFiles() {
+  fileInputRef.value?.click()
+}
+
+/** 把选中的文件按相对路径提交到技能目录 */
+async function submitUploadedFiles(fileList, useWebkitPath) {
+  const files = Array.from(fileList || [])
+  if (!files.length) return
+  const fd = new FormData()
+  const paths = []
+  files.forEach((f) => {
+    const rel = useWebkitPath ? f.webkitRelativePath || f.name : f.name
+    paths.push(rel)
+    fd.append('files', f)
+  })
+  fd.append('paths', JSON.stringify(paths))
+  const res = await uploadSkillFiles(form.value.skillId, fd)
+  ElMessage.success(`已上传 ${res?.count ?? files.length} 个文件`)
+  await loadFiles()
+  await loadScripts()
+  await handleSyncScripts()
+}
+
+async function onDirPicked(e) {
+  const files = e.target.files
+  try {
+    await submitUploadedFiles(files, true)
+  } catch (err) {
+    /* 统一提示 */
+  } finally {
+    e.target.value = ''
+  }
+}
+
+async function onScriptFilesPicked(e) {
+  const files = e.target.files
+  try {
+    await submitUploadedFiles(files, true)
+  } catch (err) {
+    /* 统一提示 */
+  } finally {
+    e.target.value = ''
+  }
+}
+
+/** 导出技能目录 ZIP */
+async function exportDir() {
+  try {
+    const res = await exportSkill(form.value.skillId)
+    const blob = res?.data instanceof Blob ? res.data : new Blob([res])
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${form.value.skillCode || 'skill'}.zip`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    /* 统一提示 */
+  }
+}
+
+/* ------------------------------ 上传 / 导入技能包 ------------------------------ */
+/** 服务端技能文件根目录，鼠标悬停可见 */
+const skillRootPath = ref('')
+const importTab = ref('folder')
+const folderFiles = ref([])
+const zipFile = ref(null)
+const zipPreview = ref(null)
+const uploadCode = ref('')
+const uploadOverwrite = ref(false)
+const folderInput = ref()
+const zipInput = ref()
+
+function openImport() {
+  importTab.value = 'folder'
+  folderFiles.value = []
+  zipFile.value = null
+  zipPreview.value = null
+  uploadCode.value = ''
+  uploadOverwrite.value = false
+  importOpen.value = true
+}
+
+function pickFolder() {
+  folderInput.value?.click()
+}
+function pickZip() {
+  zipInput.value?.click()
+}
+
+function onFolderPicked(e) {
+  const files = Array.from(e.target.files || [])
+  folderFiles.value = files.map((f) => ({ path: f.webkitRelativePath || f.name, file: f }))
+}
+
+async function onZipPicked(e) {
+  const file = (e.target.files || [])[0]
+  if (!file) return
+  zipFile.value = file
+  zipPreview.value = null
+  const fd = new FormData()
+  fd.append('file', file)
+  try {
+    zipPreview.value = await previewSkillZip(fd)
+  } catch (err) {
+    /* 预览失败不阻塞导入 */
+  }
 }
 
 const rules = {
@@ -710,22 +1187,51 @@ function submitForm() {
 }
 
 async function submitImport() {
-  if (!importForm.content || !importForm.content.trim()) {
-    ElMessage.warning('请粘贴技能内容')
-    return
-  }
   importLoading.value = true
   try {
-    await importSkill({
-      content: importForm.content,
-      skillName: importForm.skillName,
-      category: importForm.category,
-      source: 'IMPORT'
-    })
-    ElMessage.success('导入成功')
+    if (importTab.value === 'folder') {
+      if (!folderFiles.value.length) {
+        ElMessage.warning('请先选择技能文件夹')
+        return
+      }
+      const fd = new FormData()
+      const paths = []
+      folderFiles.value.forEach((f) => {
+        paths.push(f.path)
+        fd.append('files', f.file)
+      })
+      fd.append('paths', JSON.stringify(paths))
+      if (uploadCode.value.trim()) fd.append('skillCode', uploadCode.value.trim())
+      fd.append('overwrite', String(uploadOverwrite.value))
+      const skill = await importSkillFolder(fd)
+      ElMessage.success(`技能「${skill?.skillName || skill?.skillCode}」已导入到 ${skill?.skillCode}/ 目录`)
+    } else if (importTab.value === 'zip') {
+      if (!zipFile.value) {
+        ElMessage.warning('请先选择 ZIP 技能包')
+        return
+      }
+      const fd = new FormData()
+      fd.append('file', zipFile.value)
+      if (uploadCode.value.trim()) fd.append('skillCode', uploadCode.value.trim())
+      fd.append('overwrite', String(uploadOverwrite.value))
+      const skill = await importSkillZip(fd)
+      ElMessage.success(`技能「${skill?.skillName || skill?.skillCode}」已导入到 ${skill?.skillCode}/ 目录`)
+    } else {
+      if (!importForm.content || !importForm.content.trim()) {
+        ElMessage.warning('请粘贴技能内容')
+        return
+      }
+      await importSkill({
+        content: importForm.content,
+        skillName: importForm.skillName,
+        category: importForm.category,
+        source: 'IMPORT'
+      })
+      ElMessage.success('导入成功')
+      importForm.content = ''
+      importForm.skillName = ''
+    }
     importOpen.value = false
-    importForm.content = ''
-    importForm.skillName = ''
     getList()
   } catch (e) {
     /* 统一提示 */
@@ -793,6 +1299,11 @@ onMounted(async () => {
     categories.value = (await skillCategories()) || []
   } catch (e) {
     categories.value = ['办公', '研发', '运维', '数据', '写作', '其他'].map((v) => ({ label: v, value: v }))
+  }
+  try {
+    skillRootPath.value = (await skillRoot())?.path || ''
+  } catch (e) {
+    skillRootPath.value = ''
   }
   getList()
 })
@@ -932,5 +1443,121 @@ onMounted(async () => {
   font-size: 12px;
   color: #909399;
   margin-top: 8px;
+}
+
+/* ---------- 上传区 ---------- */
+.upload-zone {
+  border: 1px dashed #d0d7de;
+  border-radius: 8px;
+  padding: 26px 16px;
+  text-align: center;
+  cursor: pointer;
+  background: #fafbfc;
+  transition: all 0.2s;
+}
+.upload-zone:hover {
+  border-color: #409eff;
+  background: #f0f7ff;
+}
+.upload-icon {
+  font-size: 30px;
+  color: #909399;
+}
+.upload-text {
+  margin-top: 8px;
+  font-size: 14px;
+  color: #303133;
+}
+.upload-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #909399;
+}
+.file-list {
+  margin-top: 12px;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fafafa;
+}
+.file-list__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #303133;
+  margin-bottom: 6px;
+}
+.file-list ul {
+  margin: 0;
+  padding-left: 16px;
+  max-height: 168px;
+  overflow: auto;
+}
+.file-list li {
+  font-size: 12px;
+  color: #606266;
+  line-height: 1.9;
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+}
+.file-more {
+  color: #909399 !important;
+}
+.zip-preview {
+  font-size: 12.5px;
+  color: #606266;
+  line-height: 1.9;
+}
+
+/* ---------- 文件页签 ---------- */
+.file-path {
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+  font-size: 12px;
+  color: #606266;
+}
+.file-panel {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.file-tree {
+  width: 260px;
+  min-height: 320px;
+  max-height: 440px;
+  overflow: auto;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  padding: 8px;
+  background: #fafafa;
+}
+.file-editor {
+  flex: 1;
+  min-width: 0;
+}
+.file-editor__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #303133;
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+}
+.tree-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+.tree-icon {
+  font-size: 13px;
+}
+.tree-del {
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.tree-node:hover .tree-del {
+  opacity: 1;
 }
 </style>
