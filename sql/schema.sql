@@ -376,6 +376,10 @@ CREATE TABLE wf_instance (
   end_time      DATETIME              DEFAULT NULL,
   user_id       BIGINT                DEFAULT NULL,
   username      VARCHAR(64)           DEFAULT NULL,
+  create_by     VARCHAR(64)           DEFAULT NULL COMMENT '创建人（BaseEntity 审计字段）',
+  create_time   DATETIME              DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  update_by     VARCHAR(64)           DEFAULT NULL COMMENT '更新人',
+  update_time   DATETIME              DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (instance_id),
   KEY idx_def (def_id),
   KEY idx_start (start_time)

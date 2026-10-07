@@ -141,6 +141,10 @@ public class WorkflowEngine {
         instance.setInputData(writeJson(safeParams));
         instance.setTokenTotal(0);
         instance.setCostMs(0);
+        if (StrUtil.isNotBlank(username)) {
+            instance.setCreateBy(username);
+            instance.setUpdateBy(username);
+        }
         instanceMapper.insert(instance);
 
         WorkflowContext context = new WorkflowContext(instance, safeParams, objectMapper);
@@ -205,8 +209,18 @@ public class WorkflowEngine {
                 }
 
                 String next = context.takeNextNodeId();
+                String nextHandle = context.takeNextHandle();
                 if (StrUtil.isBlank(next)) {
-                    next = firstTarget(outEdges, currentId);
+                    // 条件节点：先看「命中的分支出口」有没有拖出连线，再退到第一条出边
+                    if (StrUtil.isNotBlank(nextHandle)) {
+                        next = edgeOfSourceHandle(outEdges.get(currentId), nextHandle);
+                    }
+                    if (StrUtil.isBlank(next) && nodeType == NodeType.CONDITION) {
+                        next = conditionTarget(node, outEdges, currentId);
+                    }
+                    if (StrUtil.isBlank(next)) {
+                        next = firstTarget(outEdges, currentId);
+                    }
                 }
                 currentId = next;
             }
@@ -229,6 +243,9 @@ public class WorkflowEngine {
             instance.setCostMs(costOf(flowStart));
             instance.setTokenTotal(context.getTokenTotal());
             instance.setVariables(writeJson(context.getVariables()));
+            if (StrUtil.isNotBlank(username)) {
+                instance.setUpdateBy(username);
+            }
             try {
                 instanceMapper.updateById(instance);
             } catch (Exception e) {
@@ -309,6 +326,63 @@ public class WorkflowEngine {
             return null;
         }
         return edges.get(0).getTarget();
+    }
+
+    /**
+     * 条件节点的兜底走向：优先用节点里配的 branch.target，没配就看画布上该分支拖出的连线。
+     *
+     * <p>设计器里从一个分支端点拖线出去时，会把 target 写回 node.data，理论上两者一致；
+     * 这里再兜一层是为了兼容「只拉了线、target 是空的老数据」。</p>
+     */
+    private String conditionTarget(GraphNode node, Map<String, List<GraphEdge>> outEdges, String nodeId) {
+        List<GraphEdge> edges = outEdges.get(nodeId);
+        if (edges == null || edges.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> data = node.getData() == null ? Map.of() : node.getData();
+        // 1) 分支表里显式配了 target 的
+        Object raw = data.get("branches");
+        if (raw instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> map) {
+                    String target = StrUtil.trimToNull(String.valueOf(map.get("target")));
+                    if (target != null) {
+                        String hit = targetOfHandle(edges, target);
+                        if (hit != null) {
+                            return hit;
+                        }
+                    }
+                }
+            }
+        }
+        // 2) 按 branch_0 → branch_1 顺序找第一条画出来的连线，最后再考虑默认分支
+        for (int i = 0; i < 20; i++) {
+            String hit = edgeOfSourceHandle(edges, "branch_" + i);
+            if (hit != null) {
+                return hit;
+            }
+        }
+        return edgeOfSourceHandle(edges, "branch_default");
+    }
+
+    /** 在出边里找指向某节点的连线（确认该 target 确实画了线，避免指向已删节点） */
+    private String targetOfHandle(List<GraphEdge> edges, String targetId) {
+        for (GraphEdge edge : edges) {
+            if (edge != null && targetId.equals(edge.getTarget())) {
+                return targetId;
+            }
+        }
+        return null;
+    }
+
+    /** 取指定出口端点的连线目标 */
+    private String edgeOfSourceHandle(List<GraphEdge> edges, String sourceHandle) {
+        for (GraphEdge edge : edges) {
+            if (edge != null && sourceHandle.equals(edge.getSourceHandle())) {
+                return StrUtil.trimToNull(edge.getTarget());
+            }
+        }
+        return null;
     }
 
     /** 构造节点运行记录（RUNNING） */

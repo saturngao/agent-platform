@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS skill_script_log (
   status      TINYINT     NOT NULL DEFAULT 0      COMMENT '0成功 1失败',
   create_by   VARCHAR(64) DEFAULT NULL,
   create_time DATETIME    DEFAULT CURRENT_TIMESTAMP,
+  update_by   VARCHAR(64) DEFAULT NULL           COMMENT '更新人（BaseEntity 审计字段）',
+  update_time DATETIME    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   remark      VARCHAR(500) DEFAULT NULL           COMMENT '备注',
   PRIMARY KEY (log_id),
   KEY idx_script (script_id, log_id),

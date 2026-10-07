@@ -55,6 +55,17 @@ public class WorkflowContext {
     @Setter
     private String nextNodeId;
 
+    /**
+     * 命中的分支出口（形如 branch_0 / branch_default）
+     *
+     * <p>只在「分支没手写 target、靠画布连线决定走向」时使用：
+     * ConditionExecutor 判断出命中哪个分支后把出口编号放在这里，
+     * 引擎再据此找到该出口拖出的那条连线。</p>
+     */
+    @Getter
+    @Setter
+    private String nextHandle;
+
     /** 结束节点产出的最终输出 */
     @Getter
     @Setter
@@ -152,6 +163,13 @@ public class WorkflowContext {
         String id = nextNodeId;
         nextNodeId = null;
         return id;
+    }
+
+    /** 取出并清空「命中的分支出口」，语义同 takeNextNodeId */
+    public String takeNextHandle() {
+        String handle = nextHandle;
+        nextHandle = null;
+        return handle;
     }
 
     // ============================ 模板渲染 ============================

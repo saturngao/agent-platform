@@ -25,8 +25,11 @@ public class GraphEdge implements Serializable {
     /** 终点节点ID */
     private String target;
 
-    /** 起点出口标识（条件分支用） */
+    /** 起点出口标识：条件节点形如 branch_0 / branch_default，其余节点为 out */
     private String sourceHandle;
+
+    /** 终点入口标识（目前所有节点只有一个入口，保留字段便于扩展） */
+    private String targetHandle;
 
     /** 连线标签 */
     private String label;

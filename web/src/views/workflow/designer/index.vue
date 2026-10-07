@@ -30,7 +30,7 @@
         <el-form-item>
           <el-button type="primary" :icon="Document" :loading="saving" @click="handleSave">保存</el-button>
           <el-button type="success" :icon="Promotion" @click="handlePublish">发布</el-button>
-          <el-button type="warning" :icon="VideoPlay" @click="runOpen = true">运行</el-button>
+          <el-button type="warning" :icon="VideoPlay" @click="openRun">运行</el-button>
           <el-button :icon="Back" @click="goBack">返回</el-button>
         </el-form-item>
       </el-form>
@@ -575,8 +575,31 @@ function addBranch() {
   selected.value.data.branches.push({ condition: 'true', target: '', label: '分支' + (selected.value.data.branches.length + 1) })
   updateNode()
 }
+function openRun() {
+  const err = validateCanvas()
+  if (err) {
+    ElMessage.warning(err)
+    return
+  }
+  runOpen.value = true
+}
 function removeBranch(i) {
-  selected.value.data.branches.splice(i, 1)
+  const node = selected.value
+  const id = node.id
+  node.data.branches.splice(i, 1)
+  // 分支删掉后，后面分支的出口序号要整体前移，否则连线会挂到错误的分支上
+  const kept = []
+  for (const e of edges.value) {
+    const h = e.sourceHandle
+    if (e.source === id && h && h.startsWith('branch_') && h !== 'branch_default') {
+      const idx = Number(h.slice('branch_'.length))
+      if (idx === i) continue
+      if (idx > i) e.sourceHandle = 'branch_' + (idx - 1)
+    }
+    kept.push(e)
+  }
+  edges.value = kept
+  selectedEdge.value = null
   updateNode()
 }
 function removeSelected() {
@@ -664,6 +687,21 @@ function loadGraph(graph) {
   seq = nodes.value.length + 1
 }
 
+/** 保存 / 运行前的画布校验，返回错误文案或 null */
+function validateCanvas() {
+  if (nodes.value.length === 0) return '画布为空，请先添加节点'
+  const types = nodes.value.map((n) => n.data.nodeType)
+  if (!types.includes('start')) return '流程缺少【开始】节点'
+  if (!types.includes('end')) return '流程缺少【结束】节点'
+  if (edges.value.length === 0) return '还没有任何连线：把节点右侧的圆点拖到下一个节点左侧的圆点即可建立关联'
+  const sources = new Set(edges.value.map((e) => e.source))
+  const isolated = nodes.value.filter((n) => n.data.nodeType !== 'end' && !sources.has(n.id))
+  if (isolated.length) {
+    return '节点【' + isolated.map((n) => n.data.name || n.id).join('、') + '】还没有往下连线'
+  }
+  return null
+}
+
 function handleSave() {
   if (!def.defName) {
     ElMessage.warning('请填写流程名称')
@@ -671,6 +709,11 @@ function handleSave() {
   }
   if (!def.defKey) {
     ElMessage.warning('请填写流程编码')
+    return
+  }
+  const err = validateCanvas()
+  if (err) {
+    ElMessage.warning(err)
     return
   }
   saving.value = true
@@ -781,10 +824,17 @@ onMounted(() => {
       })
       .catch(() => {})
   } else {
-    // 新建时预置开始/结束节点
+    // 新建时预置一条「开始 → 结束」骨架，顺便把连线的样子直接展示出来
     addNode({ type: 'start' })
     addNode({ type: 'end' })
     selected.value = null
+    edges.value = [{
+      id: 'edge_start_end',
+      source: nodes.value[0].id,
+      target: nodes.value[1].id,
+      sourceHandle: 'out',
+      label: ''
+    }]
   }
 })
 </script>
@@ -886,13 +936,77 @@ onMounted(() => {
   background: #fff;
 }
 .wf-node {
+  position: relative;
   width: 170px;
   border: 1px solid #409eff;
   border-radius: 6px;
-  overflow: hidden;
   background: #fff;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   font-size: 12px;
+}
+.wf-node.is-selected {
+  outline: 2px solid #409eff;
+  outline-offset: 1px;
+}
+/* 连线端点：默认样式偏小，放大并加描边便于鼠标抓取 */
+.wf-handle {
+  width: 11px !important;
+  height: 11px !important;
+  border: 2px solid #fff !important;
+  background: #409eff !important;
+  box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.16);
+  transition: transform 0.12s;
+}
+.wf-handle:hover {
+  background: #66b1ff !important;
+  transform: scale(1.35);
+}
+.wf-handle.vue-flow__handle-left {
+  left: -6px !important;
+}
+.wf-handle.vue-flow__handle-right {
+  right: -6px !important;
+}
+/* 条件节点的分支出口：每行一个 */
+.wf-branches {
+  border-top: 1px dashed #e4e7ed;
+  background: #fafafa;
+}
+.wf-branch-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 4px 18px 4px 10px;
+  border-bottom: 1px solid #f0f2f5;
+}
+.wf-branch-row:last-child {
+  border-bottom: none;
+  border-radius: 0 0 5px 5px;
+}
+.wf-branch-row.is-default {
+  color: #909399;
+}
+.wf-branch-text {
+  display: inline-block;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-handle-branch {
+  background: #e6a23c !important;
+}
+.wf-handle-branch:hover {
+  background: #f0b165 !important;
+}
+/* 连线选中后高亮，方便确认要删的是哪一条 */
+:deep(.vue-flow__edge.selected .vue-flow__edge-path),
+:deep(.vue-flow__edge:hover .vue-flow__edge-path) {
+  stroke: #409eff;
+  stroke-width: 2.5;
+}
+:deep(.vue-flow__edge-path) {
+  stroke-width: 1.8;
 }
 .wf-node-head {
   padding: 4px 8px;

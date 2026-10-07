@@ -45,19 +45,27 @@ public class ConditionExecutor implements NodeExecutor {
         Map<String, Object> data = NodeData.of(node);
         List<Map<String, Object>> branches = readBranches(data.get("branches"));
 
-        for (Map<String, Object> branch : branches) {
+        for (int i = 0; i < branches.size(); i++) {
+            Map<String, Object> branch = branches.get(i);
             String condition = NodeData.str(branch.get("condition"));
             String target = NodeData.str(branch.get("target"));
-            if (target.isEmpty()) {
+            if (!SimpleConditionEvaluator.matches(condition, context)) {
                 continue;
             }
-            if (SimpleConditionEvaluator.matches(condition, context)) {
-                String label = NodeData.str(branch.get("label"));
+            String handle = "branch_" + i;
+            String label = NodeData.str(branch.get("label"));
+            String showName = label.isEmpty() ? condition : label;
+            if (!target.isEmpty()) {
                 context.setNextNodeId(target);
-                context.setNodeOutput(node, (label.isEmpty() ? condition : label) + " -> " + target);
+                context.setNodeOutput(node, showName + " -> " + target);
                 log.info("条件节点[{}]命中分支[{}]，走向节点[{}]", node.getName(), condition, target);
                 return;
             }
+            // 没手写 target：记录命中的出口，由引擎去找这条出口拖出的连线
+            context.setNextHandle(handle);
+            context.setNodeOutput(node, showName + " -> " + handle);
+            log.info("条件节点[{}]命中分支[{}]，走连线的出口[{}]", node.getName(), condition, handle);
+            return;
         }
 
         String defaultTarget = NodeData.str(data.get("defaultTarget"));
@@ -67,9 +75,8 @@ public class ConditionExecutor implements NodeExecutor {
             log.info("条件节点[{}]未命中任何分支，走默认分支[{}]", node.getName(), defaultTarget);
             return;
         }
-
-        // 注意：这里刻意不抛异常——判空失败属于业务分支，不应让整个流程崩掉
-        log.warn("条件节点[{}]未命中任何分支且未配置 defaultTarget，流程将在此节点后结束", node.getName());
+        context.setNextHandle("branch_default");
+        log.warn("条件节点[{}]未命中任何分支且未配置 defaultTarget，尝试走「默认」出口的连线", node.getName());
         context.setNodeOutput(node, "");
     }
 
