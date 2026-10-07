@@ -126,7 +126,9 @@
     </div>
 
     <!-- 新建/编辑弹窗 -->
-    <el-dialog v-model="open" :title="title" width="760px" append-to-body destroy-on-close>
+    <el-dialog v-model="open" :title="title" width="920px" append-to-body destroy-on-close>
+      <el-tabs v-model="activeTab">
+        <el-tab-pane label="基本信息" name="base">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="86px">
         <el-row :gutter="16">
           <el-col :span="12">
@@ -185,9 +187,150 @@
           description="保存后可在【智能体管理】编辑智能体时挂载该技能，也可在工作流设计器中为流程挂载。挂载后调用大模型时会自动注入这段内容。"
         />
       </el-form>
+        </el-tab-pane>
+
+        <!-- 脚本页签：给技能挂 Python 脚本，对话中可被模型自动调用 -->
+        <el-tab-pane name="script">
+          <template #label>
+            脚本<span v-if="scripts.length" class="tab-badge">{{ scripts.length }}</span>
+          </template>
+
+          <el-empty v-if="!form.skillId" description="技能保存后即可添加脚本" :image-size="70" />
+          <template v-else>
+            <div class="script-toolbar">
+              <el-button type="primary" icon="Plus" size="small" @click="openScript()">新增脚本</el-button>
+              <el-button icon="Refresh" size="small" @click="loadScripts">刷新</el-button>
+              <span class="script-tip">
+                脚本编码会被注入提示词，智能体对话时模型可自主决定调用哪个脚本
+              </span>
+            </div>
+            <el-table :data="scripts" size="small" border>
+              <el-table-column prop="scriptCode" label="编码" width="150" />
+              <el-table-column prop="scriptName" label="名称" min-width="130" />
+              <el-table-column prop="description" label="用途说明" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="timeoutSec" label="超时(秒)" width="90" align="center" />
+              <el-table-column label="状态" width="80" align="center">
+                <template #default="{ row }">
+                  <el-tag size="small" :type="Number(row.status) === 0 ? 'success' : 'info'">
+                    {{ Number(row.status) === 0 ? '正常' : '停用' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="190" align="center">
+                <template #default="{ row }">
+                  <el-button link type="primary" @click="openScript(row)">编辑</el-button>
+                  <el-button link type="success" @click="openScript(row, true)">运行</el-button>
+                  <el-button link type="danger" @click="removeScript(row)">删除</el-button>
+                </template>
+              </el-table-column>
+              <template #empty>
+                <div class="empty-tip">该技能还没有脚本，点击「新增脚本」添加一个 Python 脚本</div>
+              </template>
+            </el-table>
+          </template>
+        </el-tab-pane>
+      </el-tabs>
+
       <template #footer>
         <el-button @click="open = false">取 消</el-button>
         <el-button type="primary" :loading="submitLoading" @click="submitForm">确 定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 脚本编辑 / 运行弹窗 -->
+    <el-dialog v-model="scriptOpen" :title="scriptTitle" width="880px" append-to-body destroy-on-close>
+      <el-form :model="scriptForm" label-width="92px">
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="脚本名称">
+              <el-input v-model="scriptForm.scriptName" placeholder="如：SQL 成本估算" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="脚本编码">
+              <el-input
+                v-model="scriptForm.scriptCode"
+                :disabled="!!scriptForm.scriptId"
+                placeholder="英文标识，如 explain_cost"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="用途说明">
+          <el-input
+            v-model="scriptForm.description"
+            placeholder="给大模型看：什么时候该调用这个脚本"
+          />
+        </el-form-item>
+        <el-form-item label="参数说明">
+          <el-input
+            v-model="scriptForm.paramDesc"
+            type="textarea"
+            :rows="2"
+            placeholder='JSON 样例，如 {"table_rows": 100000, "selectivity": 0.01}'
+          />
+        </el-form-item>
+        <el-form-item label="超时(秒)">
+          <el-input-number v-model="scriptForm.timeoutSec" :min="1" :max="120" />
+        </el-form-item>
+        <el-form-item label="脚本内容">
+          <el-input
+            v-model="scriptForm.content"
+            type="textarea"
+            :rows="14"
+            class="code-area"
+            placeholder="在这里写 Python 代码"
+          />
+        </el-form-item>
+      </el-form>
+
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        title="入参与出参约定"
+        description="脚本同目录会生成 input.json，环境变量 SKILL_PARAMS 传入同样的 JSON 串，二选一读取即可；print 到 stdout 的内容会作为执行结果返回。"
+        style="margin-bottom: 12px"
+      />
+
+      <el-divider content-position="left">运行测试</el-divider>
+      <el-input
+        v-model="scriptForm.testParams"
+        type="textarea"
+        :rows="3"
+        class="code-area"
+        placeholder='入参 JSON，如 {"table_rows": 100000, "selectivity": 0.01, "has_index": true}'
+      />
+      <div class="run-bar">
+        <el-button type="success" icon="VideoPlay" :loading="runLoading" @click="runTest">
+          运行脚本
+        </el-button>
+        <span v-if="runResult" class="run-stat">
+          <el-tag size="small" :type="runResult.success ? 'success' : 'danger'">
+            {{ runResult.success ? '成功' : '失败' }}
+          </el-tag>
+          退出码 {{ runResult.exitCode }} · 耗时 {{ runResult.costMs }}ms
+          <el-tag v-if="runResult.timedOut" size="small" type="warning">超时终止</el-tag>
+        </span>
+      </div>
+      <div v-if="runResult" class="run-result">
+        <div v-if="runResult.stdout">
+          <div class="res-label">标准输出</div>
+          <pre>{{ runResult.stdout }}</pre>
+        </div>
+        <div v-if="runResult.stderr">
+          <div class="res-label">错误输出</div>
+          <pre class="err">{{ runResult.stderr }}</pre>
+        </div>
+        <div v-if="runResult.errorMsg">
+          <div class="res-label">说明</div>
+          <pre class="err">{{ runResult.errorMsg }}</pre>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="scriptOpen = false">取 消</el-button>
+        <el-button type="primary" :loading="scriptLoading" @click="submitScript">保 存</el-button>
       </template>
     </el-dialog>
 
@@ -266,7 +409,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js'
@@ -277,7 +420,13 @@ import {
   delSkill,
   changeSkillStatus,
   skillCategories,
-  importSkill
+  importSkill,
+  listSkillScripts,
+  addSkillScript,
+  editSkillScript,
+  delSkillScript,
+  runSkillScript,
+  runInlineScript
 } from '@/api/skill'
 
 const md = new MarkdownIt({
@@ -342,6 +491,142 @@ const importForm = reactive({
   category: undefined
 })
 
+/* ------------------------------ 技能脚本 ------------------------------ */
+/** 编辑弹窗当前页签 */
+const activeTab = ref('base')
+const scripts = ref([])
+const scriptOpen = ref(false)
+const scriptTitle = ref('')
+const scriptLoading = ref(false)
+const runLoading = ref(false)
+const runResult = ref(null)
+/** 打开脚本时的原始内容，用于判断运行时该调「已保存脚本」还是「调试执行」 */
+let originContent = ''
+
+const defaultScriptForm = () => ({
+  scriptId: null,
+  skillId: null,
+  scriptName: '',
+  scriptCode: '',
+  description: '',
+  paramDesc: '',
+  language: 'python',
+  content: '',
+  timeoutSec: 30,
+  testParams: '{}'
+})
+const scriptForm = ref(defaultScriptForm())
+
+async function loadScripts() {
+  if (!form.value.skillId) {
+    scripts.value = []
+    return
+  }
+  try {
+    scripts.value = (await listSkillScripts(form.value.skillId)) || []
+  } catch (e) {
+    scripts.value = []
+  }
+}
+
+/** 打开脚本编辑弹窗；runOnly=true 时直接进入运行态 */
+function openScript(row, runOnly = false) {
+  runResult.value = null
+  scriptForm.value = {
+    ...defaultScriptForm(),
+    ...(row || {}),
+    skillId: form.value.skillId,
+    timeoutSec: Number(row?.timeoutSec) || 30
+  }
+  originContent = row?.content || ''
+  scriptTitle.value = row?.scriptId ? '编辑脚本' : '新增脚本'
+  scriptOpen.value = true
+  if (runOnly) {
+    nextTick(() => runTest())
+  }
+}
+
+async function submitScript() {
+  if (!scriptForm.value.scriptName || !scriptForm.value.scriptCode) {
+    ElMessage.warning('脚本名称与编码不能为空')
+    return
+  }
+  if (!scriptForm.value.content || !scriptForm.value.content.trim()) {
+    ElMessage.warning('脚本内容不能为空')
+    return
+  }
+  scriptLoading.value = true
+  try {
+    const payload = { ...scriptForm.value, skillId: form.value.skillId }
+    delete payload.testParams
+    if (scriptForm.value.scriptId) {
+      await editSkillScript(payload)
+      ElMessage.success('脚本修改成功')
+    } else {
+      await addSkillScript(payload)
+      ElMessage.success('脚本新增成功')
+    }
+    originContent = scriptForm.value.content
+    scriptOpen.value = false
+    await loadScripts()
+  } catch (e) {
+    /* 统一提示 */
+  } finally {
+    scriptLoading.value = false
+  }
+}
+
+async function removeScript(row) {
+  try {
+    await ElMessageBox.confirm(`确认删除脚本「${row.scriptName}」？`, '警告', {
+      type: 'warning',
+      confirmButtonText: '确定',
+      cancelButtonText: '取消'
+    })
+  } catch (e) {
+    return
+  }
+  await delSkillScript(row.scriptId)
+  ElMessage.success('删除成功')
+  await loadScripts()
+}
+
+/** 运行测试：内容未改动时跑已保存脚本（落执行记录），否则以调试模式跑当前编辑内容 */
+async function runTest() {
+  if (!scriptForm.value.content || !scriptForm.value.content.trim()) {
+    ElMessage.warning('请先填写脚本内容')
+    return
+  }
+  let params = scriptForm.value.testParams
+  if (!params || !params.trim()) {
+    params = '{}'
+  }
+  runLoading.value = true
+  runResult.value = null
+  try {
+    const unchanged = scriptForm.value.scriptId && scriptForm.value.content === originContent
+    runResult.value = unchanged
+      ? await runSkillScript({ scriptId: scriptForm.value.scriptId, params })
+      : await runInlineScript({
+          code: scriptForm.value.content,
+          params,
+          timeoutSec: scriptForm.value.timeoutSec,
+          skillId: form.value.skillId
+        })
+  } catch (e) {
+    /* 统一提示 */
+  } finally {
+    runLoading.value = false
+  }
+}
+
+/** 打开技能弹窗后同步加载脚本列表 */
+async function afterOpenSkill() {
+  activeTab.value = 'base'
+  runResult.value = null
+  await loadScripts()
+}
+
 const rules = {
   skillName: [{ required: true, message: '技能名称不能为空', trigger: 'blur' }],
   skillCode: [{ required: true, message: '技能编码不能为空', trigger: 'blur' }],
@@ -388,6 +673,7 @@ function handleAdd() {
   form.value = defaultForm()
   title.value = '新建技能'
   open.value = true
+  afterOpenSkill()
 }
 
 async function handleUpdate(row) {
@@ -398,6 +684,7 @@ async function handleUpdate(row) {
     tagList: row.tagList || []
   }
   open.value = true
+  await afterOpenSkill()
 }
 
 function submitForm() {
@@ -463,6 +750,7 @@ function cloneAsCustom(s) {
   title.value = '复制为自建技能'
   marketOpen.value = false
   open.value = true
+  afterOpenSkill()
 }
 
 async function handleDelete(row) {
@@ -583,5 +871,66 @@ onMounted(async () => {
   font-size: 12px;
   color: #909399;
   margin-top: 2px;
+}
+
+/* ---------- 脚本页签 ---------- */
+.tab-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: #409eff;
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+}
+.script-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.script-tip {
+  font-size: 12px;
+  color: #909399;
+}
+.code-area :deep(textarea) {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+.run-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
+}
+.run-stat {
+  font-size: 12px;
+  color: #606266;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.run-result pre {
+  margin: 4px 0 10px;
+  padding: 10px 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 220px;
+  overflow: auto;
+}
+.run-result pre.err {
+  background: #fef0f0;
+  color: #c45656;
+}
+.res-label {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 8px;
 }
 </style>

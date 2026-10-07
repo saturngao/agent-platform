@@ -100,3 +100,20 @@ platform:
       - /favicon.ico
   upload:
     path: ./uploads
+  # 技能脚本执行（Python）
+  skill:
+    python:
+      # 总开关：false 时拒绝一切脚本执行
+      enabled: true
+      # python 解释器命令，可填绝对路径或虚拟环境解释器
+      command: python3
+      # 未指定超时时的默认秒数
+      default-timeout-sec: 30
+      # 单次执行允许的最大秒数，脚本自身配置超过该值按此上限执行
+      max-timeout-sec: 120
+      # 单个输出流保留的最大字符数
+      max-output-chars: 8000
+      # 临时工作目录根，留空使用系统临时目录
+      work-dir:
+      # 智能体对话中允许的最大工具调用轮数，防止模型反复调用死循环
+      max-tool-rounds: 3

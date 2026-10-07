@@ -24,10 +24,12 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
@@ -35,9 +37,16 @@ import reactor.core.publisher.SignalType;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import com.aip.platform.skill.entity.SkillScript;
+import com.aip.platform.skill.script.ScriptResult;
+import com.aip.platform.skill.service.ISkillScriptService;
 
 /**
  * 智能体模块服务实现
@@ -61,6 +70,20 @@ public class AgentServiceImpl implements IAgentService {
 
     /** error_msg 落库最大长度 */
     private static final int ERROR_MSG_MAX_LEN = 1000;
+
+    /** 模型输出的脚本调用块：```tool {json} ``` */
+    private static final Pattern TOOL_BLOCK =
+            Pattern.compile("```tool\\s*\\r?\\n(.*?)```", Pattern.DOTALL);
+
+    /** 流式输出时把最终答案切成的片段长度 */
+    private static final int STREAM_CHUNK_SIZE = 24;
+
+    /** 脚本服务：对话中按模型指令执行 Python 脚本 */
+    private final ISkillScriptService scriptService;
+
+    /** 对话中允许的最大脚本调用轮数，防止模型反复调用 */
+    @Value("${platform.skill.python.max-tool-rounds:3}")
+    private int maxToolRounds;
 
     private final AgentDefinitionMapper agentMapper;
     private final AgentConversationMapper conversationMapper;
@@ -212,12 +235,11 @@ public class AgentServiceImpl implements IAgentService {
         // 1. 预处理：校验智能体与会话、落库用户消息、组装上下文、加载模型
         ChatContext ctx = prepareContext(agentId, conversationId, content);
 
-        // 2. 调用大模型（同步）
+        // 2. 调用大模型（同步）。挂载了脚本时走工具循环：模型要求调用脚本就执行并把结果回灌
         long start = System.currentTimeMillis();
         LlmResponse response;
         try {
-            response = llmClient.chat(ctx.getModel(), ctx.getMessages(), ctx.getTemperature(),
-                    ctx.getMaxTokens(), Constants.BizType.AGENT, String.valueOf(agentId));
+            response = callModelWithTools(ctx);
         } catch (Exception e) {
             log.error("智能体调用异常 agentId={}: {}", agentId, e.getMessage());
             saveFailedReply(ctx, e.getMessage(), start);
@@ -240,6 +262,29 @@ public class AgentServiceImpl implements IAgentService {
     public Flux<String> chatStream(Long agentId, Long conversationId, String content) {
         ChatContext ctx = prepareContext(agentId, conversationId, content);
         long start = System.currentTimeMillis();
+
+        // 智能体挂了可执行脚本时，必须先拿到完整回复才能判断是否需要调用脚本，
+        // 因此改为「先跑工具循环，再把最终答案分片推流」，保证与非流式链路行为一致。
+        if (hasCallableScripts(ctx)) {
+            return Flux.defer(() -> {
+                try {
+                    LlmResponse response = callModelWithTools(ctx);
+                    if (response == null || !response.isSuccess()) {
+                        String err = response == null ? "大模型未返回任何内容" : response.getErrorMsg();
+                        saveFailedReply(ctx, err, start);
+                        return Flux.error(new BusinessException("智能体调用失败: " + err));
+                    }
+                    int tokens = response.getTotalTokens() == null ? 0 : response.getTotalTokens();
+                    finishReply(ctx, response.getContent(), tokens, response.getCostMs(), response.getModelName());
+                    return Flux.fromIterable(splitForStream(response.getContent()));
+                } catch (Exception e) {
+                    log.error("智能体流式调用异常 agentId={}: {}", agentId, e.getMessage());
+                    saveFailedReply(ctx, e.getMessage(), start);
+                    return Flux.error(new BusinessException("智能体调用失败: " + e.getMessage()));
+                }
+            }).subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic());
+        }
+
         // reactor 流里需要跨线程累积全文，故使用 AtomicReference 持有 StringBuilder
         AtomicReference<StringBuilder> buffer = new AtomicReference<>(new StringBuilder());
 
@@ -373,6 +418,176 @@ public class AgentServiceImpl implements IAgentService {
             }
         }
         return messages;
+    }
+
+    // ============================ 脚本工具调用 ============================
+
+    /**
+     * 调用大模型，支持脚本工具循环：
+     * 模型输出工具调用块 → 执行脚本 → 把结果作为上下文回灌 → 再次调用模型，直到给出最终答案。
+     * 没有可用脚本时退化为单次普通调用，行为与改造前完全一致。
+     */
+    private LlmResponse callModelWithTools(ChatContext ctx) {
+        List<SkillScript> scripts = loadScripts(ctx.getAgent().getAgentId());
+        if (scripts.isEmpty()) {
+            return llmClient.chat(ctx.getModel(), ctx.getMessages(), ctx.getTemperature(),
+                    ctx.getMaxTokens(), Constants.BizType.AGENT, String.valueOf(ctx.getAgent().getAgentId()));
+        }
+
+        List<LlmMessage> messages = ctx.getMessages();
+        int rounds = maxToolRounds > 0 ? maxToolRounds : 3;
+        int totalTokens = 0;
+        int totalCost = 0;
+        LlmResponse last = null;
+
+        for (int i = 0; i < rounds; i++) {
+            LlmResponse resp = llmClient.chat(ctx.getModel(), messages, ctx.getTemperature(),
+                    ctx.getMaxTokens(), Constants.BizType.AGENT, String.valueOf(ctx.getAgent().getAgentId()));
+            if (resp == null) {
+                return null;
+            }
+            totalTokens += resp.getTotalTokens() == null ? 0 : resp.getTotalTokens();
+            totalCost += resp.getCostMs() == null ? 0 : resp.getCostMs();
+            if (!resp.isSuccess()) {
+                return resp;
+            }
+            last = resp;
+
+            ToolCall call = parseToolCall(resp.getContent());
+            if (call == null) {
+                // 没有调用指令，说明已经是最终答案
+                resp.setTotalTokens(totalTokens);
+                resp.setCostMs(totalCost);
+                return resp;
+            }
+
+            log.info("智能体调用脚本 agentId={} tool={} args={}", ctx.getAgent().getAgentId(), call.tool, call.args);
+            ScriptResult result = scriptService.runByCode(scripts, call.tool, call.args,
+                    ISkillScriptService.BIZ_AGENT, String.valueOf(ctx.getAgent().getAgentId()));
+
+            // 把模型的调用意图与脚本结果都回灌进上下文，模型才能接着生成最终答案
+            messages.add(LlmMessage.assistant(resp.getContent()));
+            messages.add(LlmMessage.user("工具「" + call.tool + "」的执行结果如下：\n"
+                    + result.toPromptText()
+                    + "\n（这是脚本真实执行的输出，请基于它回答用户；如还需调用其它工具，"
+                    + "继续按之前的格式输出工具调用块。）"));
+        }
+
+        // 轮次用尽，强制模型收口给最终答案
+        messages.add(LlmMessage.user("已达到工具调用次数上限，不要再调用工具，请直接基于已有结果给出最终答案。"));
+        LlmResponse resp = llmClient.chat(ctx.getModel(), messages, ctx.getTemperature(),
+                ctx.getMaxTokens(), Constants.BizType.AGENT, String.valueOf(ctx.getAgent().getAgentId()));
+        if (resp != null) {
+            totalTokens += resp.getTotalTokens() == null ? 0 : resp.getTotalTokens();
+            totalCost += resp.getCostMs() == null ? 0 : resp.getCostMs();
+            resp.setTotalTokens(totalTokens);
+            resp.setCostMs(totalCost);
+        }
+        return resp;
+    }
+
+    /** 判断该智能体是否挂载了可调用的脚本（决定流式链路是否需要先跑工具循环） */
+    private boolean hasCallableScripts(ChatContext ctx) {
+        try {
+            return !loadScripts(ctx.getAgent().getAgentId()).isEmpty();
+        } catch (Exception e) {
+            log.debug("检查智能体脚本失败: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    /** 加载智能体通过技能挂载的全部可用脚本 */
+    private List<SkillScript> loadScripts(Long agentId) {
+        if (agentId == null) {
+            return Collections.emptyList();
+        }
+        try {
+            List<Long> skillIds = skillService.selectSkillIdsByBiz(
+                    com.aip.platform.skill.entity.SkillBinding.BizType.AGENT, agentId);
+            if (skillIds == null || skillIds.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<SkillScript> scripts = scriptService.selectEnabledBySkillIds(skillIds);
+            return scripts == null ? Collections.emptyList() : scripts;
+        } catch (Exception e) {
+            log.warn("加载智能体脚本失败 agentId={}: {}", agentId, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * 从模型输出中解析脚本调用块：
+     * <pre>```tool
+     * {"tool": "脚本编码", "args": {...}}
+     * ```</pre>
+     */
+    private ToolCall parseToolCall(String text) {
+        if (StrUtil.isBlank(text)) {
+            return null;
+        }
+        // 1) 优先匹配规范写法：```tool {json} ```
+        Matcher m = TOOL_BLOCK.matcher(text);
+        while (m.find()) {
+            ToolCall call = parseToolJson(m.group(1));
+            if (call != null) {
+                return call;
+            }
+        }
+        // 2) 兜底：部分模型会省略代码块，直接输出裸 JSON，此时要求整段就是一个调用指令
+        String trimmed = text.trim();
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            return parseToolJson(trimmed);
+        }
+        return null;
+    }
+
+    /** 从一段文本中截出 JSON 并解析成工具调用指令 */
+    private ToolCall parseToolJson(String body) {
+        if (StrUtil.isBlank(body)) {
+            return null;
+        }
+        int start = body.indexOf('{');
+        int end = body.lastIndexOf('}');
+        if (start < 0 || end <= start) {
+            return null;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(body.substring(start, end + 1));
+            String tool = node.path("tool").asText(null);
+            if (StrUtil.isBlank(tool)) {
+                return null;
+            }
+            JsonNode args = node.get("args");
+            String argsJson = args == null || args.isNull() ? "{}" : objectMapper.writeValueAsString(args);
+            return new ToolCall(tool.trim(), argsJson);
+        } catch (Exception e) {
+            log.debug("解析工具调用块失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 把最终答案切成小片，让前端仍有逐步输出的效果 */
+    private List<String> splitForStream(String text) {
+        String content = text == null ? "" : text;
+        if (content.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> chunks = new ArrayList<>();
+        for (int i = 0; i < content.length(); i += STREAM_CHUNK_SIZE) {
+            chunks.add(content.substring(i, Math.min(i + STREAM_CHUNK_SIZE, content.length())));
+        }
+        return chunks;
+    }
+
+    /** 一次脚本调用指令 */
+    private static class ToolCall {
+        private final String tool;
+        private final String args;
+
+        ToolCall(String tool, String args) {
+            this.tool = tool;
+            this.args = args;
+        }
     }
 
     /**

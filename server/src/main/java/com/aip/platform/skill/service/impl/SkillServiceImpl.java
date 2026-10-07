@@ -36,6 +36,9 @@ public class SkillServiceImpl extends ServiceImpl<SkillMapper, Skill> implements
 
     private final SkillBindingMapper bindingMapper;
 
+    /** 脚本服务：用于把技能挂载的可执行脚本作为「工具」注入提示词 */
+    private final com.aip.platform.skill.service.ISkillScriptService scriptService;
+
     @Override
     public PageResult<Skill> selectPage(PageQuery query, Skill q) {
         IPage<Skill> page = new Page<>(query.getPageNum(), query.getPageSize());
@@ -181,6 +184,7 @@ public class SkillServiceImpl extends ServiceImpl<SkillMapper, Skill> implements
         StringBuilder sb = new StringBuilder();
         sb.append("\n\n# 可用技能\n");
         sb.append("以下是你可以使用的技能，当任务匹配某个技能的适用场景时，请严格按该技能的要求输出：\n\n");
+        List<Long> skillIds = new ArrayList<>();
         for (Skill s : skills) {
             sb.append("## 技能：").append(s.getSkillName()).append("\n");
             if (StrUtil.isNotBlank(s.getSummary())) {
@@ -189,8 +193,20 @@ public class SkillServiceImpl extends ServiceImpl<SkillMapper, Skill> implements
             if (StrUtil.isNotBlank(s.getContent())) {
                 sb.append(s.getContent()).append("\n\n");
             }
+            if (s.getSkillId() != null) {
+                skillIds.add(s.getSkillId());
+            }
         }
         sb.append("# 技能使用说明结束\n");
+        // 技能若挂载了可执行脚本，追加工具清单，让模型知道有哪些脚本可以真实调用
+        try {
+            String toolPrompt = scriptService.buildToolPrompt(skillIds);
+            if (StrUtil.isNotBlank(toolPrompt)) {
+                sb.append(toolPrompt);
+            }
+        } catch (Exception e) {
+            log.warn("加载技能脚本工具清单失败: {}", e.getMessage());
+        }
         return sb.toString();
     }
 

@@ -55,3 +55,46 @@ export function skillBinding(params) {
 export function bindSkills(data) {
   return http.post('/skill/binding', data)
 }
+
+// ============ 技能脚本（Python 可执行脚本） ============
+// 接口挂在 /skill-script 下，避免与 /skill/{skillId} 路径参数冲突
+
+// GET /skill-script?skillId=1  某技能下的脚本列表
+export function listSkillScripts(skillId) {
+  return http.get('/skill-script', { skillId })
+}
+
+// GET /skill-script/{scriptId}
+export function getSkillScript(scriptId) {
+  return http.get('/skill-script/' + scriptId)
+}
+
+// POST /skill-script  新增脚本
+export function addSkillScript(data) {
+  return http.post('/skill-script', data)
+}
+
+// PUT /skill-script  修改脚本
+export function editSkillScript(data) {
+  return http.put('/skill-script', data)
+}
+
+// DELETE /skill-script/{ids}
+export function delSkillScript(ids) {
+  return http.del('/skill-script/' + ids)
+}
+
+// POST /skill-script/run  body {scriptId, params}
+export function runSkillScript(data) {
+  return http.post('/skill-script/run', data)
+}
+
+// POST /skill-script/run-inline  body {code, params, timeoutSec, skillId}  不落库直接执行
+export function runInlineScript(data) {
+  return http.post('/skill-script/run-inline', data)
+}
+
+// GET /skill-script/log?scriptId=&limit=
+export function skillScriptLogs(params) {
+  return http.get('/skill-script/log', params)
+}
