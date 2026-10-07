@@ -78,6 +78,9 @@ public class AgentServiceImpl implements IAgentService {
     /** 流式输出时把最终答案切成的片段长度 */
     private static final int STREAM_CHUNK_SIZE = 24;
 
+    /** 知识库注入到提示词的最大字符数，防止挤占对话上下文 */
+    private static final int KNOWLEDGE_MAX_CHARS = 6000;
+
     /** 脚本服务：对话中按模型指令执行 Python 脚本 */
     private final ISkillScriptService scriptService;
 
@@ -93,6 +96,12 @@ public class AgentServiceImpl implements IAgentService {
     /** 技能服务：用于把挂载的技能内容注入系统提示词 */
     private final com.aip.platform.skill.service.ISkillService skillService;
 
+    /** 知识检索服务：对话时按提问召回知识库片段 */
+    private final com.aip.platform.knowledge.service.IKnowledgeSearchService knowledgeSearch;
+
+    /** 知识库服务：回显智能体绑定的知识库名称 */
+    private final com.aip.platform.knowledge.service.IKnowledgeBaseService knowledgeBaseService;
+
     // ============================ 智能体 CRUD ============================
 
     @Override
@@ -104,6 +113,7 @@ public class AgentServiceImpl implements IAgentService {
             for (AgentDefinition row : rows) {
                 fillTools(row);
                 fillSkills(row);
+                fillKnowledge(row);
             }
         }
         return PageResult.of(rows, result.getTotal(), query.getPageNum(), query.getPageSize());
@@ -120,6 +130,7 @@ public class AgentServiceImpl implements IAgentService {
         }
         fillTools(agent);
         fillSkills(agent);
+        fillKnowledge(agent);
         return agent;
     }
 
@@ -373,7 +384,7 @@ public class AgentServiceImpl implements IAgentService {
         ChatContext ctx = new ChatContext();
         ctx.setAgent(agent);
         ctx.setConvId(convId);
-        ctx.setMessages(buildMessages(agent, convId));
+        ctx.setMessages(buildMessages(agent, convId, content));
 
         LlmModel model = llmClient.getOrLoadModel(agent.getModelId());
         ctx.setModel(model);
@@ -383,9 +394,11 @@ public class AgentServiceImpl implements IAgentService {
     }
 
     /**
-     * 组装发送给大模型的消息列表：系统提示词 + 最近 N 条历史（含本次提问）
+     * 组装发送给大模型的消息列表：系统提示词 + 知识库检索结果 + 最近 N 条历史（含本次提问）
+     *
+     * @param userQuery 本次用户提问，用于知识库检索；为空时跳过检索
      */
-    private List<LlmMessage> buildMessages(AgentDefinition agent, Long convId) {
+    private List<LlmMessage> buildMessages(AgentDefinition agent, Long convId, String userQuery) {
         List<LlmMessage> messages = new ArrayList<>();
         String systemPrompt = StrUtil.isNotBlank(agent.getSystemPrompt())
                 ? agent.getSystemPrompt()
@@ -404,6 +417,13 @@ public class AgentServiceImpl implements IAgentService {
         // 系统提示词始终放在最前面
         messages.add(LlmMessage.system(systemPrompt));
 
+        // 知识库检索：按本次提问召回相关片段，作为「参考资料」插在历史之前，
+        // 让模型在回答时优先依据真实文档，而不是凭记忆编造。
+        String knowledgeCtx = buildKnowledgeContext(agent, userQuery);
+        if (StrUtil.isNotBlank(knowledgeCtx)) {
+            messages.add(LlmMessage.system(knowledgeCtx));
+        }
+
         List<AgentMessage> history = messageMapper.selectLatestMessages(convId, HISTORY_LIMIT);
         if (history != null) {
             for (AgentMessage item : history) {
@@ -418,6 +438,56 @@ public class AgentServiceImpl implements IAgentService {
             }
         }
         return messages;
+    }
+
+    /**
+     * 按智能体绑定的知识库检索与本次提问相关的片段
+     *
+     * <p>检索属于「增强」而非必经环节：知识库被删、向量接口异常等情况一律降级为空，
+     * 不阻断对话。返回的文本已经带来源标注，便于模型引用。</p>
+     */
+    private String buildKnowledgeContext(AgentDefinition agent, String userQuery) {
+        List<Long> baseIds = parseIdList(agent.getKnowledgeIds());
+        if (baseIds.isEmpty() || StrUtil.isBlank(userQuery)) {
+            return null;
+        }
+        try {
+            String ctx = knowledgeSearch.buildContext(baseIds, userQuery, null, KNOWLEDGE_MAX_CHARS);
+            if (StrUtil.isBlank(ctx)) {
+                return null;
+            }
+            return "以下是知识库（用户上传的文档）中与本次提问最相关的内容，"
+                    + "请优先依据这些资料作答；资料未覆盖的部分可以结合通用知识，"
+                    + "但要说明这是通用知识而非文档内容。\n\n"
+                    + "----- 知识库资料开始 -----\n" + ctx + "\n----- 知识库资料结束 -----";
+        } catch (Exception e) {
+            log.warn("知识库检索失败 agentId={}：{}", agent.getAgentId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /** 解析 "1,2" / "[1,2]" / "[1, 2]" 形式的 ID 列表 */
+    private List<Long> parseIdList(String raw) {
+        if (StrUtil.isBlank(raw)) {
+            return List.of();
+        }
+        String s = raw.trim().replaceAll("[\\[\\]\"']", "");
+        List<Long> ids = new ArrayList<>();
+        for (String part : s.split("[,，\\s]+")) {
+            String t = part.trim();
+            if (t.isEmpty()) {
+                continue;
+            }
+            try {
+                long v = Long.parseLong(t);
+                if (v > 0) {
+                    ids.add(v);
+                }
+            } catch (NumberFormatException ignored) {
+                // 忽略非法项，避免一条脏数据让整个对话失败
+            }
+        }
+        return ids;
     }
 
     // ============================ 脚本工具调用 ============================
@@ -708,6 +778,12 @@ public class AgentServiceImpl implements IAgentService {
         if (agent.getTools() != null && !agent.getTools().isEmpty()) {
             agent.setToolsJson(toJson(agent.getTools()));
         }
+        // 知识库：前端传数组，落库为逗号分隔字符串；传空数组表示解除绑定
+        if (agent.getKnowledgeBaseIds() != null) {
+            List<Long> ids = agent.getKnowledgeBaseIds().stream().filter(java.util.Objects::nonNull).toList();
+            agent.setKnowledgeIds(ids.isEmpty() ? "" : ids.stream().map(String::valueOf)
+                    .collect(java.util.stream.Collectors.joining(",")));
+        }
     }
 
     /**
@@ -747,6 +823,34 @@ public class AgentServiceImpl implements IAgentService {
             }
         } catch (Exception e) {
             log.debug("加载智能体技能失败 agentId={}: {}", agent.getAgentId(), e.getMessage());
+        }
+    }
+
+    /** 回填智能体绑定的知识库（数组 + 名称），供前端表单回显 */
+    private void fillKnowledge(AgentDefinition agent) {
+        if (agent == null) {
+            return;
+        }
+        List<Long> ids = parseIdList(agent.getKnowledgeIds());
+        agent.setKnowledgeBaseIds(ids);
+        if (ids.isEmpty()) {
+            return;
+        }
+        try {
+            List<String> names = new ArrayList<>();
+            for (Long id : ids) {
+                try {
+                    com.aip.platform.knowledge.entity.KnowledgeBase b = knowledgeBaseService.selectDetail(id);
+                    if (b != null) {
+                        names.add(b.getBaseName());
+                    }
+                } catch (Exception ignored) {
+                    // 单个知识库被删不影响其余
+                }
+            }
+            agent.setKnowledgeNames(String.join("、", names));
+        } catch (Exception e) {
+            log.debug("加载智能体知识库失败 agentId={}: {}", agent.getAgentId(), e.getMessage());
         }
     }
 

@@ -33,8 +33,9 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 20MB
-      max-request-size: 20MB
+      # 知识库允许上传较大的文档，单文件上限 60MB
+      max-file-size: 60MB
+      max-request-size: 120MB
 
   # 邮件：AI 总结推送用，可在「系统参数」中动态覆盖
   mail:
@@ -120,3 +121,16 @@ platform:
       work-dir:
       # 智能体对话中允许的最大工具调用轮数，防止模型反复调用死循环
       max-tool-rounds: 3
+  # 知识库（文档上传 → 解析 → 分片 → 检索注入）
+  knowledge:
+    # 文档存储根目录，每个知识库一个子目录（以 base_code 命名）
+    dir: ./data/knowledge
+    # 粗召回候选上限：关键词 LIKE 召回后进入内存打分/向量重排的条数
+    recall-limit: 200
+    # 参与向量重排的最大条数（向量接口较慢，只对关键词得分最高的若干条重排）
+    rerank-limit: 40
+    # 混合打分权重：关键词分与向量分的占比，两者相加为 1
+    keyword-weight: 0.45
+    vector-weight: 0.55
+    # 一次性为分片补向量的最大条数，防止超大文档长时间占用
+    embed-batch-max: 500

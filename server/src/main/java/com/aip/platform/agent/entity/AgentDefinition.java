@@ -94,4 +94,12 @@ public class AgentDefinition extends BaseEntity {
     /** 挂载的技能名称，列表展示用 */
     @TableField(exist = false)
     private String skillNames;
+
+    /** 绑定的知识库ID数组（前端友好字段 -&gt; knowledgeIds 逗号分隔字符串） */
+    @TableField(exist = false)
+    private List<Long> knowledgeBaseIds;
+
+    /** 绑定的知识库名称，列表/详情展示用 */
+    @TableField(exist = false)
+    private String knowledgeNames;
 }

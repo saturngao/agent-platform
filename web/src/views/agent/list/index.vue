@@ -39,6 +39,7 @@
               <span>模型：{{ a.modelName || '默认模型' }}</span>
               <span>{{ a.category || '未分类' }}</span>
             </div>
+            <div v-if="a.knowledgeNames" class="agent-kb">知识库：{{ a.knowledgeNames }}</div>
             <div class="agent-actions">
               <el-button size="small" type="primary" :icon="ChatDotRound" @click="goChat(a)">对话</el-button>
               <el-button size="small" :icon="Promotion" @click="handlePublish(a)">发布</el-button>
@@ -117,6 +118,27 @@
             </el-form-item>
           </el-col>
           <el-col :span="24">
+            <el-form-item label="关联知识库">
+              <el-select
+                v-model="form.knowledgeBaseIds"
+                multiple
+                filterable
+                placeholder="可挂载多个知识库，对话时会按提问自动检索相关文档片段"
+                style="width: 100%"
+              >
+                <el-option v-for="k in knowledgeList" :key="k.baseId" :label="k.baseName" :value="k.baseId">
+                  <span>{{ k.baseName }}</span>
+                  <span style="float: right; color: #909399; font-size: 12px">
+                    {{ k.docCount || 0 }} 篇 / {{ k.chunkCount || 0 }} 段
+                  </span>
+                </el-option>
+              </el-select>
+              <div class="form-tip">
+                上传文档请到「知识库 → 知识库管理」。未命中任何片段时，智能体按自身能力正常作答。
+              </div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
             <el-form-item label="系统提示词">
               <el-input v-model="form.systemPrompt" type="textarea" :rows="5" placeholder="定义智能体的身份、语气与边界" />
             </el-form-item>
@@ -166,6 +188,7 @@ import { Search, Refresh, Plus, Edit, Delete, Promotion, ChatDotRound } from '@e
 import { listAgents, addAgent, editAgent, delAgent, publishAgent } from '@/api/agent'
 import { modelOptions } from '@/api/llm'
 import { skillOptions, skillBinding } from '@/api/skill'
+import { knowledgeBaseOptions } from '@/api/knowledge'
 
 const router = useRouter()
 const loading = ref(false)
@@ -176,6 +199,7 @@ const open = ref(false)
 const title = ref('')
 const modelList = ref([])
 const skillList = ref([])
+const knowledgeList = ref([])
 const formRef = ref()
 const toolOptions = ['datetime', 'calculator', 'search', 'websearch', 'worklog']
 
@@ -193,6 +217,7 @@ const defaultForm = () => ({
   maxTokens: 2048,
   tools: [],
   skillIds: [],
+  knowledgeBaseIds: [],
   status: 1,
   remark: ''
 })
@@ -242,6 +267,14 @@ function loadModelOptions() {
     .catch(() => {
       skillList.value = []
     })
+  // 知识库选项：列表接口只返回 status=0 的库
+  knowledgeBaseOptions()
+    .then((res) => {
+      knowledgeList.value = Array.isArray(res) ? res : []
+    })
+    .catch(() => {
+      knowledgeList.value = []
+    })
   return modelOptions()
     .then((res) => {
       modelList.value = Array.isArray(res) ? res : []
@@ -274,7 +307,9 @@ function handleEdit(row) {
     ...row,
     agentKey: row.agentCode || row.agentKey,
     tools: row.tools || [],
-    skillIds: row.skillIds || []
+    skillIds: row.skillIds || [],
+    // 详情接口会回填数组；列表行数据没有时以详情为准
+    knowledgeBaseIds: row.knowledgeBaseIds || []
   }
   title.value = '修改智能体'
   open.value = true
@@ -375,6 +410,14 @@ onMounted(() => {
   color: #909399;
   padding-bottom: 10px;
   border-bottom: 1px solid #f0f0f0;
+}
+.agent-kb {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #16a085;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .agent-actions {
   display: flex;
